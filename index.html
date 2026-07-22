@@ -6,6 +6,7 @@
 <title>Pil Order Portal-Bihar</title>
 <link rel="manifest" href="./manifest.json" />
 <meta name="theme-color" content="#1F4E93" />
+<link rel="icon" type="image/png" sizes="32x32" href="./icon-32.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
 <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -47,7 +48,7 @@
 
   // Admin password (shared login gate for managers — NOT the same as the
   // owner-only Firebase Auth login below). CHANGE THIS before you go live.
-  const ADMIN_PASSWORD = "generic@123";
+  const ADMIN_PASSWORD = "CHANGE_ME_ADMIN_PASSWORD";
 
   // ---- expose to global scope ----
   window._fb = { db, ref, set, get, onValue, update, runTransaction };
@@ -196,6 +197,9 @@
         Default password: 123456 — you can change it after login
       </p>
     </div>
+    <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:none;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
+      <i class="ti ti-download"></i> Install app on this device
+    </button>
   </div>
 </div>
 
@@ -2246,7 +2250,7 @@ function _isIOS(){
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   _deferredInstallPrompt = e;
-  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login').forEach(btn => {
+  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login, #pwa-install-btn-login-card').forEach(btn => {
     btn.style.display = 'inline-flex';
   });
 });
@@ -2254,7 +2258,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 // iOS never fires beforeinstallprompt - show button immediately with manual instructions instead
 if(_isIOS()){
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login').forEach(btn => {
+    document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login, #pwa-install-btn-login-card').forEach(btn => {
       btn.style.display = 'inline-flex';
     });
   });
@@ -2262,7 +2266,7 @@ if(_isIOS()){
 
 window.addEventListener('appinstalled', () => {
   _deferredInstallPrompt = null;
-  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login').forEach(btn => {
+  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login, #pwa-install-btn-login-card').forEach(btn => {
     btn.style.display = 'none';
   });
 });
@@ -2281,7 +2285,7 @@ async function triggerPwaInstall(){
   const { outcome } = await _deferredInstallPrompt.userChoice;
   console.log('PWA install outcome:', outcome);
   _deferredInstallPrompt = null;
-  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login').forEach(btn => {
+  document.querySelectorAll('#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login, #pwa-install-btn-login-card').forEach(btn => {
     btn.style.display = 'none';
   });
 }
