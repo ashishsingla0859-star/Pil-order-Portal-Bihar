@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIL ORDER PORTAL - BIHAR</title>
+    <!-- Web App Manifest for PWA Support -->
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIlBJTCBPcmRlciBQb3J0YWwiLAogICJzaG9ydF9uYW1lIjogIlBJTCBPcmRlciIsCiAgInN0YXJ0X3VybCI6ICIuIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAiYmFja2dyb3VuZF9jb2xvciI6ICIjZmZmZmZmIiwKICAidGhlbWVfY29sb3IiOiAiIzBkNmVmZCIKfQ==">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="PIL Order">
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel Reading -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar-brand { font-weight: bold; color: #0d6efd !important; }
+        .card { border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; border: none; }
+        .card-header { font-weight: bold; border-radius: 10px 10px 0 0 !important; }
+        .table-responsive { max-height: 500px; overflow-y: auto; }
+        .badge-scheme { background-color: #198754; color: white; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; }
+        .btn-install-app { background-color: #ffc107; color: #000; font-weight: 600; border: none; }
+        .btn-install-app:hover { background-color: #e0a800; color: #000; }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Spinner -->
+    <div class="loading-overlay" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand text-white" href="#"><i class="fa-solid fa-boxes-packing me-2"></i>PIL ORDER PORTAL - BIHAR</a>
+            <div class="d-flex align-items-center gap-2">
+                <!-- Install App Button -->
+                <button class="btn btn-install-app btn-sm" id="btnInstallApp" onclick="triggerAppInstall()">
+                    <i class="fa-solid fa-download me-1"></i> Install App
+                </button>
+                <button class="btn btn-outline-light btn-sm" id="btnToggleMode" onclick="toggleMode()">Admin Mode</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-4">
+
+        <!-- ================= CUSTOMER SECTION ================= -->
+        <div id="customerSection">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <i class="fa-solid fa-cart-plus me-2"></i>Place New Order
+                </div>
+                <div class="card-body">
+                    <form id="orderForm" onsubmit="handleOrderSubmit(event)">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Party Name (ग्राहक का नाम)</label>
+                                <input type="text" class="form-control" id="custName" required placeholder="Enter Party Name">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Mobile Number (मोबाइल नंबर)</label>
+                                <input type="tel" class="form-control" id="custMobile" pattern="[0-9]{10}" required placeholder="10 Digit Mobile No">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Location/Address (स्थान)</label>
+                                <input type="text" class="form-control" id="custLocation" required placeholder="Enter District/City">
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <h5 class="mb-3"><i class="fa-solid fa-list me-2"></i>Select Items & Quantities</h5>
+                        <div class="table-responsive">
+                            <table class="table table-bordered align-middle" id="customerItemsTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Product Name</th>
+                                        <th>Packing</th>
+                                        <th>Available Stock (Cartons)</th>
+                                        <th>Order Quantity (Cartons)</th>
+                                        <th>Free Scheme / Benefit</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Items loaded dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-grid gap-2 mt-3">
+                            <button type="submit" class="btn btn-success btn-lg"><i class="fa-solid fa-paper-plane me-2"></i>Submit Order</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= ADMIN SECTION ================= -->
+        <div id="adminSection" style="display: none;">
+            
+            <!-- Admin Login Modal/Card -->
+            <div id="adminLoginCard" class="card mx-auto" style="max-width: 400px;">
+                <div class="card-header bg-dark text-white text-center">
+                    Admin Login
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-control" id="adminPassInput" placeholder="Enter Admin Password">
+                    </div>
+                    <button class="btn btn-primary w-100" onclick="checkAdminPassword()">Login</button>
+                </div>
+            </div>
+
+            <!-- Admin Dashboard Content -->
+            <div id="adminDashboard" style="display: none;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <ul class="nav nav-pills" id="adminTabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" id="tab-orders" data-bs-toggle="tab" data-bs-target="#ordersContent">Orders Received</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="tab-stock" data-bs-toggle="tab" data-bs-target="#stockContent">Stock & Scheme Master</button>
+                        </li>
+                    </ul>
+                    <button class="btn btn-danger btn-sm" onclick="adminLogout()">Logout Admin</button>
+                </div>
+
+                <div class="tab-content">
+                    <!-- Orders List Tab -->
+                    <div class="tab-pane fade show active" id="ordersContent">
+                        <div class="card">
+                            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                                <span>Recent Orders</span>
+                                <button class="btn btn-sm btn-light" onclick="loadOrders()"><i class="fa-solid fa-rotate me-1"></i> Refresh</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped align-middle" id="ordersTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Date & Time</th>
+                                                <th>Party Details</th>
+                                                <th>Location</th>
+                                                <th>Order Details</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Orders loaded dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stock & Upload Tab -->
+                    <div class="tab-pane fade" id="stockContent">
+                        <div class="card">
+                            <div class="card-header bg-secondary text-white">
+                                Update Master Stock (Excel Upload)
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Upload Excel File (.xlsx, .xls)</label>
+                                    <input type="file" class="form-control" id="excelFileInput" accept=".xlsx, .xls">
+                                </div>
+                                <button class="btn btn-primary" onclick="uploadStockExcel()"><i class="fa-solid fa-upload me-1"></i> Update Stock Data</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- App Functionality JavaScript -->
+    <script>
+        // CONFIG & CONSTANTS
+        let ADMIN_PASSWORD = "generic@123"; // Admin Password updated here
+        let isAdminLoggedIn = false;
+        let deferredPrompt = null;
+
+        // PWA Installation Setup
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const btn = document.getElementById('btnInstallApp');
+            if(btn) btn.style.display = 'inline-block';
+        });
+
+        function triggerAppInstall() {
+            // Check if iOS
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the install prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            } else if (isIOS) {
+                alert("iPhone/iPad पर ऐप इंस्टॉल करने के लिए:\n1. सफारी (Safari) के नीचे 'Share' बटन पर क्लिक करें।\n2. नीचे स्क्रॉल करें और 'Add to Home Screen' चुनें।");
+            } else {
+                alert("आपका ऐप पहले से इंस्टॉल है या फिर आपका ब्राउज़र डायरेक्ट इंस्टॉल बटन का समर्थन नहीं करता। आप ब्राउज़र मेनू (3 dots) में जाकर 'Add to Home Screen' या 'Install App' चुन सकते हैं।");
+            }
+        }
+
+        // Toggle Modes
+        function toggleMode() {
+            const custSec = document.getElementById('customerSection');
+            const adminSec = document.getElementById('adminSection');
+            const toggleBtn = document.getElementById('btnToggleMode');
+
+            if (custSec.style.display === 'none') {
+                custSec.style.display = 'block';
+                adminSec.style.display = 'none';
+                toggleBtn.innerText = 'Admin Mode';
+            } else {
+                custSec.style.display = 'none';
+                adminSec.style.display = 'block';
+                toggleBtn.innerText = 'Customer Mode';
+            }
+        }
+
+        // Admin Pass Check
+        function checkAdminPassword() {
+            const pass = document.getElementById('adminPassInput').value;
+            if (pass === ADMIN_PASSWORD) {
+                isAdminLoggedIn = true;
+                document.getElementById('adminLoginCard').style.display = 'none';
+                document.getElementById('adminDashboard').style.display = 'block';
+                alert("Login Successful!");
+            } else {
+                alert("गलत पासवर्ड! (Wrong Password)");
+            }
+        }
+
+        function adminLogout() {
+            isAdminLoggedIn = false;
+            document.getElementById('adminPassInput').value = '';
+            document.getElementById('adminLoginCard').style.display = 'block';
+            document.getElementById('adminDashboard').style.display = 'none';
+        }
+
+        function handleOrderSubmit(e) {
+            e.preventDefault();
+            alert("Order Submitted Successfully!");
+            document.getElementById('orderForm').reset();
+        }
+
+        function uploadStockExcel() {
+            alert("Stock Data Upload Functionality Activated.");
+        }
+
+        function loadOrders() {
+            // Load orders logic
+        }
+    </script>
+</body>
+</html>
