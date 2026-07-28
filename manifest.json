@@ -1,0 +1,25 @@
+{
+  "name": "Pil Order Portal-Bihar",
+  "short_name": "PIL Portal",
+  "description": "Order, stock and account management portal for PIL Bihar stockists",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F2F4EF",
+  "theme_color": "#1F4E93",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
