@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<script>
+  (function(){
+    try{
+      var t = localStorage.getItem('pil-theme');
+      if(t === 'dark' || t === 'light'){ document.documentElement.setAttribute('data-theme', t); }
+      else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){ document.documentElement.setAttribute('data-theme','dark'); }
+    }catch(e){}
+  })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Pil Order Portal-Bihar</title>
 <link rel="manifest" href="./manifest.json" />
@@ -89,6 +98,28 @@
     --border-radius-md: 6px;
     --border-radius-lg: 9px;
   }
+  html[data-theme="dark"] {
+    --color-text-primary: #E7ECE5;
+    --color-text-secondary: #9AA69C;
+    --color-text-danger: #F2867E;
+    --color-background-primary: #1B231F;
+    --color-background-secondary: #121714;
+    --color-background-danger: #3B211F;
+    --color-border-primary: #3A453C;
+    --color-border-secondary: #2C3630;
+    --color-border-tertiary: #232B26;
+    --color-border-danger: #5C3230;
+
+    --cobalt: #6E9FE8;
+    --cobalt-deep: #A9C7F2;
+    --cobalt-tint: #1E2C42;
+    --amber: #E3A85E;
+    --amber-tint: #3A2C18;
+    --verdigris: #6BBE97;
+    --verdigris-deep: #9BDBBB;
+    --verdigris-tint: #17322580;
+  }
+  body, .btn, .card, table { transition: background-color 0.15s, border-color 0.15s, color 0.15s; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: var(--font-sans); font-size: 14px; color: var(--color-text-primary); background: var(--color-background-secondary); }
   .screen { display: none; }
@@ -162,7 +193,48 @@
   .realtime-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--verdigris-deep); background: var(--verdigris-tint); padding: 3px 10px; border-radius: 20px; font-weight: 500; font-family: var(--font-mono); }
   .realtime-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--verdigris); animation: pulse 1.5s infinite; display: inline-block; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-  @media(max-width:600px) { .sidebar{display:none} .stat-grid{grid-template-columns:1fr 1fr} }
+
+  .theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-secondary); cursor: pointer; font-size: 15px; flex-shrink: 0; }
+  .theme-toggle:hover { background: var(--color-background-secondary); }
+  html[data-theme="dark"] .icon-sun { display: inline; }
+  html[data-theme="dark"] .icon-moon { display: none; }
+  html:not([data-theme="dark"]) .icon-sun { display: none; }
+  html:not([data-theme="dark"]) .icon-moon { display: inline; }
+
+  /* Table scroll safety on narrow screens - wrap any bare table in a
+     horizontally scrollable strip so rows never get crushed/clipped. */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  @media(max-width: 760px) {
+    body { padding-bottom: 60px; } /* room for fixed bottom tab bar */
+    .topbar { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+    .topbar > div { gap: 8px !important; }
+    .logo { font-size: 15px; }
+    .content { padding: 12px; padding-bottom: 28px; }
+    .stat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-val { font-size: 20px; }
+    .page-title { font-size: 17px; }
+
+    /* Sidebar becomes a fixed bottom tab bar instead of disappearing */
+    .main-layout { display: block; min-height: 0; }
+    .sidebar { position: fixed; left: 0; right: 0; bottom: 0; width: auto; min-height: 0;
+      display: flex; flex-direction: row; padding: 4px 2px; border-right: none;
+      border-top: 1px solid var(--color-border-secondary); z-index: 200; }
+    .nav-item { flex: 1; flex-direction: column; gap: 2px; padding: 6px 2px; font-size: 10px;
+      text-align: center; border-left: none; border-top: 3px solid transparent; border-radius: 0; }
+    .nav-item.active { border-left-color: transparent; border-top-color: var(--amber); }
+    .nav-item i { font-size: 19px; }
+
+    .login-card { width: min(320px, 88vw); padding: 2rem 1.25rem 1.75rem; }
+    .filter-row { flex-direction: column; align-items: stretch; }
+    .filter-row select, .filter-row input { width: 100%; }
+    .total-bar { bottom: 60px; padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+    table { font-size: 12px; }
+    th, td { padding: 7px 6px; }
+  }
+  @media(max-width: 400px) {
+    .stat-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -171,6 +243,7 @@
 <div id="s-login" class="screen active">
   <div class="topbar">
     <span class="logo">Pil <span>Order Portal-Bihar</span></span>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn-login" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
   </div>
   <div class="login-screen-inner">
@@ -211,7 +284,8 @@
       <span class="realtime-badge">Live</span>
       <span id="stock-freshness-note" style="font-size:11px;color:var(--color-text-secondary)"></span>
       <span class="badge badge-cust" id="cust-name-badge"></span>
-      <button class="btn btn-sm" id="pwa-install-btn" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
+    <button class="btn btn-sm" id="pwa-install-btn" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -303,7 +377,8 @@
     <div style="display:flex;align-items:center;gap:10px">
       <span class="realtime-badge">Live</span>
       <span class="badge badge-admin">Administrator</span>
-      <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
+    <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
       <button class="btn btn-sm" onclick="requireOwner(openMasterUpload)"><i class="ti ti-upload"></i> Upload master data</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
@@ -2279,6 +2354,25 @@ window.addEventListener('appinstalled', () => {
   _hideInstallButtons();
 });
 
+// Custom in-page modal instead of alert() - some mobile/in-app webviews
+// (WhatsApp, Instagram, some Android shells) silently suppress alert(),
+// which made the install button look "dead" even though it was running.
+function _showInfoModal(title, message){
+  let overlay = document.getElementById('_info-modal-overlay');
+  if(overlay) overlay.remove();
+  overlay = document.createElement('div');
+  overlay.id = '_info-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(24,42,36,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:var(--color-background-primary);color:var(--color-text-primary);border-radius:var(--border-radius-lg);max-width:360px;width:100%;padding:22px 20px;box-shadow:0 10px 30px rgba(0,0,0,0.25);font-family:var(--font-sans);">
+      <div style="font-family:var(--font-display);font-weight:600;font-size:17px;margin-bottom:10px;">${title}</div>
+      <div style="font-size:13px;line-height:1.5;color:var(--color-text-secondary);margin-bottom:18px;">${message}</div>
+      <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('_info-modal-overlay').remove()">Got it</button>
+    </div>`;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
 async function triggerPwaInstall(){
   if(_deferredInstallPrompt){
     _deferredInstallPrompt.prompt();
@@ -2299,18 +2393,26 @@ async function triggerPwaInstall(){
   const isChromeLike = /chrome|crios/i.test(ua) && !isEdge;
 
   if(isIOS){
-    alert('On iPhone/iPad: tap the Share icon in Safari, then "Add to Home Screen". Chrome on iOS cannot install apps directly \u2014 this is an Apple restriction, not something we can fix from the site.');
+    _showInfoModal('Install on iPhone/iPad', 'Tap the Share icon in Safari, then "Add to Home Screen". Chrome on iOS cannot install apps directly \u2014 this is an Apple restriction, not something we can fix from the site.');
   } else if(isFirefox){
-    alert('Firefox doesn\'t support one-tap install. To add this app: open the browser menu (\u2630) and look for "Install" / "Add to Home screen" \u2014 on desktop Firefox, you can also just bookmark this page for quick access.');
+    _showInfoModal('Install on Firefox', 'Firefox doesn\'t support one-tap install. Open the browser menu (\u2630) and look for "Install" / "Add to Home screen" \u2014 on desktop Firefox, you can also just bookmark this page for quick access.');
   } else if(isSafariDesktop){
-    alert('On Mac Safari: click the Share icon in the toolbar, then "Add to Dock" (or "Add to Home Screen") to install this app.');
+    _showInfoModal('Install on Mac Safari', 'Click the Share icon in the toolbar, then "Add to Dock" (or "Add to Home Screen") to install this app.');
   } else if(isEdge){
-    alert('On Edge: click the "\u2295 Install" icon in the address bar, or open the menu (\u22ef) \u2192 "Apps" \u2192 "Install this site as an app".');
+    _showInfoModal('Install on Edge', 'Click the "\u2295 Install" icon in the address bar, or open the menu (\u22ef) \u2192 "Apps" \u2192 "Install this site as an app".');
   } else if(isChromeLike){
-    alert('Install option isn\'t ready yet \u2014 browse the site for a few seconds and try again, or use Chrome\'s menu (\u22ee) \u2192 "Install app" / "Add to Home screen".');
+    _showInfoModal('Almost ready', 'The install option isn\'t ready quite yet \u2014 browse the site for a few more seconds and try again, or use Chrome\'s menu (\u22ee) \u2192 "Install app" / "Add to Home screen".');
   } else {
-    alert('Your browser may not support one-tap install. Look for an "Install app" or "Add to Home screen" option in your browser\'s menu.');
+    _showInfoModal('Install this app', 'Your browser may not support one-tap install. Look for an "Install app" or "Add to Home screen" option in your browser\'s menu.');
   }
+}
+
+// Dark / light theme toggle
+function toggleTheme(){
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try{ localStorage.setItem('pil-theme', next); }catch(e){}
 }
 
 if('serviceWorker' in navigator){
