@@ -411,8 +411,8 @@
         <div class="card" style="padding:0;overflow:hidden">
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>Order ID</th><th>Date &amp; Time</th><th>Customer</th><th>City</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th><th>Update</th><th>Export</th></tr></thead>
-              <tbody id="admin-order-tbody"><tr><td colspan="9" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading orders...</td></tr></tbody>
+              <thead><tr><th>Order ID</th><th>Date &amp; Time</th><th>Customer</th><th>City</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th><th>Update</th><th>Export</th><th>Delete</th></tr></thead>
+              <tbody id="admin-order-tbody"><tr><td colspan="10" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading orders...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1025,7 +1025,7 @@ function renderAdminOrders(){
 
   const tbody=document.getElementById('admin-order-tbody');
   if(!filtered.length){
-    tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--color-text-secondary);padding:32px">No orders yet.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px">No orders yet.</td></tr>';
     return;
   }
   tbody.innerHTML=filtered.map(o=>`
@@ -1047,6 +1047,7 @@ function renderAdminOrders(){
         </select>
       </td>
       <td><button class="btn btn-sm" onclick="exportSingleOrder('${o.id}')" title="Export this order"><i class="ti ti-file-spreadsheet"></i></button></td>
+      <td><button class="btn btn-sm btn-danger" onclick="confirmDeleteEntireOrder('${o.id}')" title="Delete this order">🗑️</button></td>
     </tr>`).join('');
 }
 
