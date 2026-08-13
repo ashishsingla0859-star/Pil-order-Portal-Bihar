@@ -854,31 +854,50 @@ function applyStockStyle(inputEl,status){
   inputEl.title=status==='in'?'In stock at your C&F':status==='out'?'Out of stock at your C&F':'Stock data not available';
 }
 
-// Batches under 6 months to expiry (from today, the order date) are
-// flagged red so the stockist can see at a glance which lot is close to
-// expiring and choose deliberately - not just default to whatever's first.
+// Batches are colour-coded by how close they are to expiry (from today,
+// the order date), so the stockist can see at a glance which lot to move
+// first instead of defaulting to whatever's listed first:
+//   < 6 months away  -> red    (near-expiry, clear urgently)
+//   6-12 months away -> green  (1-year bucket)
+//   >= 12 months away -> regular (no special colour)
 const SIX_MONTHS_MS=182*24*60*60*1000;
+const ONE_YEAR_MS=365*24*60*60*1000;
+function _expiryBucket(expiryTs){
+  if(typeof expiryTs!=='number') return 'regular';
+  const remaining=expiryTs-Date.now();
+  if(remaining<SIX_MONTHS_MS) return 'red';
+  if(remaining<ONE_YEAR_MS) return 'green';
+  return 'regular';
+}
+function _bucketColor(bucket){
+  if(bucket==='red') return '#B91C1C';
+  if(bucket==='green') return '#15803D';
+  return '';
+}
 function _getBatchesFor(code){
   if(!currentCustomer||!currentCustomer.cf) return [];
   return (LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[currentCustomer.cf]&&LIVE_STOCK_BATCHES[currentCustomer.cf][code])||[];
 }
 function _batchOptionHtml(b,idx){
-  const soon=(typeof b.expiryTs==='number')&&(b.expiryTs-Date.now()<SIX_MONTHS_MS);
+  const bucket=_expiryBucket(b.expiryTs);
+  const color=_bucketColor(bucket);
   const label=`${b.batch||'—'} (${b.expiry||'no expiry'}) · Stock ${b.qty}`;
-  return `<option value="${idx}" data-red="${soon?'1':'0'}" ${soon?'style="color:#B91C1C;font-weight:600"':''}>${soon?'⚠ ':''}${label}</option>`;
+  const mark=bucket==='red'?'⚠ ':(bucket==='green'?'● ':'');
+  return `<option value="${idx}" data-bucket="${bucket}" ${color?`style="color:${color};font-weight:600"`:''}>${mark}${label}</option>`;
 }
 function onBatchSelectChange(sel){
   const opt=sel.options[sel.selectedIndex];
-  const red=opt&&opt.getAttribute('data-red')==='1';
-  sel.style.color=red?'#B91C1C':'';
-  sel.style.fontWeight=red?'600':'';
+  const bucket=opt?opt.getAttribute('data-bucket'):'regular';
+  const color=_bucketColor(bucket);
+  sel.style.color=color;
+  sel.style.fontWeight=color?'600':'';
 }
 function renderBatchCell(code){
   const batches=_getBatchesFor(code);
   if(!batches.length) return '<span style="color:var(--color-text-secondary);font-size:12px">—</span>';
   const opts=batches.map((b,idx)=>_batchOptionHtml(b,idx)).join('');
-  const nearRed=(typeof batches[0].expiryTs==='number')&&(batches[0].expiryTs-Date.now()<SIX_MONTHS_MS);
-  return `<select class="batch-select" id="batch-${code}" data-code="${code}" onchange="onBatchSelectChange(this)" style="font-size:12px;padding:3px 4px;max-width:220px;${nearRed?'color:#B91C1C;font-weight:600':''}">${opts}</select>`;
+  const firstColor=_bucketColor(_expiryBucket(batches[0].expiryTs));
+  return `<select class="batch-select" id="batch-${code}" data-code="${code}" onchange="onBatchSelectChange(this)" style="font-size:12px;padding:3px 4px;max-width:220px;${firstColor?`color:${firstColor};font-weight:600`:''}">${opts}</select>`;
 }
 
 function renderProducts(){
