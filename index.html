@@ -205,6 +205,7 @@
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
   @media(max-width: 760px) {
+    #reports-grid { grid-template-columns: 1fr !important; }
     body { padding-bottom: 60px; } /* room for fixed bottom tab bar */
     .topbar { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
     .topbar > div { gap: 8px !important; }
@@ -377,6 +378,7 @@
       <span class="realtime-badge">Live</span>
       <span class="badge badge-admin">Administrator</span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
+      <button class="theme-toggle notif-toggle" onclick="toggleAdminNotifications()" title="Order notifications: OFF (tap to turn on)"><i class="ti ti-bell-off"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
       <button class="btn btn-sm" onclick="requireOwner(openMasterUpload)"><i class="ti ti-upload"></i> Upload master data</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
@@ -387,6 +389,7 @@
       <div class="nav-item active" onclick="adminNav('orders')" id="anav-orders"><i class="ti ti-clipboard-list"></i> All orders</div>
       <div class="nav-item" onclick="adminNav('products')" id="anav-products"><i class="ti ti-package"></i> Products</div>
       <div class="nav-item" onclick="adminNav('customers')" id="anav-customers"><i class="ti ti-users"></i> Customers</div>
+      <div class="nav-item" onclick="adminNav('reports')" id="anav-reports"><i class="ti ti-chart-bar"></i> Reports</div>
     </div>
     <div class="content">
       <div id="ap-orders">
@@ -453,6 +456,38 @@
               <thead><tr><th>Code</th><th>Name</th><th>City</th><th>State</th><th>SO Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
               <tbody id="admin-cust-tbody"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+      <div id="ap-reports" style="display:none">
+        <div class="page-title">Reports</div>
+        <div class="filter-row">
+          <label style="font-size:12px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px">
+            Based on:
+            <select id="report-status-filter" onchange="renderAdminReports()" style="padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;font-family:var(--font-sans);background:var(--color-background-primary);color:var(--color-text-primary)">
+              <option value="all">All orders</option>
+              <option value="Confirmed">Confirmed orders only</option>
+            </select>
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="reports-grid">
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:14px 16px 0;font-family:var(--font-display);font-weight:600;font-size:15px">Top-selling products</div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>#</th><th>Product</th><th style="text-align:right">Qty sold</th><th style="text-align:right">Amount</th></tr></thead>
+                <tbody id="report-products-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:14px 16px 0;font-family:var(--font-display);font-weight:600;font-size:15px">Top customers</div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>#</th><th>Customer</th><th style="text-align:right">Orders</th><th style="text-align:right">Amount</th></tr></thead>
+                <tbody id="report-customers-tbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -749,7 +784,12 @@ async function doLogin(){
     showScreen('s-admin');
     renderAdminCustomers();
     renderAdminProducts();
-    subscribeOrders((data)=>{renderAdminOrders();});
+    _updateNotifIcon();
+    subscribeOrders((data)=>{
+      renderAdminOrders();
+      _checkForNewOrdersAndNotify(data);
+      if(document.getElementById('ap-reports').style.display!=='none') renderAdminReports();
+    });
   } else {
     const sel=document.getElementById('cust-select');
     const candidate=CUSTOMERS.find(c=>c.code===sel.value);
@@ -778,6 +818,7 @@ async function doLogin(){
 function logout(){
   unsubscribeOrders();
   currentRole=null;currentCustomer=null;
+  _knownOrderIds=null;
   document.getElementById('pw-input').value='';
   showScreen('s-login');
 }
@@ -802,10 +843,11 @@ function custNav(p){
 }
 
 function adminNav(p){
-  ['orders','products','customers'].forEach(x=>{
+  ['orders','products','customers','reports'].forEach(x=>{
     document.getElementById('ap-'+x).style.display=x===p?'block':'none';
     document.getElementById('anav-'+x).classList.toggle('active',x===p);
   });
+  if(p==='reports') renderAdminReports();
 }
 
 // ===================== PRODUCTS =====================
@@ -1263,6 +1305,50 @@ function renderAdminCustomers(){
     </tr>`).join('');
 }
 
+// ===================== REPORTS (top products / top customers) =====================
+function renderAdminReports(){
+  const statusFilter=document.getElementById('report-status-filter').value;
+  const orders=Object.values(allOrders||{}).filter(o=>statusFilter==='all'||o.status===statusFilter);
+
+  const productTotals={}; // code -> {name, qty, amount}
+  const customerTotals={}; // code -> {name, city, orders, amount}
+
+  orders.forEach(o=>{
+    const ccode=o.customer&&o.customer.code;
+    if(ccode){
+      if(!customerTotals[ccode]) customerTotals[ccode]={name:o.customer.name,city:o.customer.city||'',orders:0,amount:0};
+      customerTotals[ccode].orders+=1;
+      customerTotals[ccode].amount+=o.total||0;
+    }
+    (o.items||[]).forEach(it=>{
+      if(!productTotals[it.code]) productTotals[it.code]={name:it.name,qty:0,amount:0};
+      productTotals[it.code].qty+=it.qty||0;
+      productTotals[it.code].amount+=it.amount||0;
+    });
+  });
+
+  const topProducts=Object.values(productTotals).sort((a,b)=>b.qty-a.qty).slice(0,10);
+  const topCustomers=Object.values(customerTotals).sort((a,b)=>b.amount-a.amount).slice(0,10);
+
+  const pBody=document.getElementById('report-products-tbody');
+  pBody.innerHTML=topProducts.length?topProducts.map((p,i)=>`
+    <tr>
+      <td style="color:var(--color-text-secondary);font-family:var(--font-mono);font-size:12px">${i+1}</td>
+      <td style="font-weight:500">${p.name}</td>
+      <td style="text-align:right;font-family:var(--font-mono)">${p.qty}</td>
+      <td style="text-align:right;font-weight:600">₹${p.amount.toFixed(2)}</td>
+    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data yet.</td></tr>';
+
+  const cBody=document.getElementById('report-customers-tbody');
+  cBody.innerHTML=topCustomers.length?topCustomers.map((c,i)=>`
+    <tr>
+      <td style="color:var(--color-text-secondary);font-family:var(--font-mono);font-size:12px">${i+1}</td>
+      <td style="font-weight:500">${c.name}<br><span style="font-size:11px;color:var(--color-text-secondary);font-weight:400">${c.city}</span></td>
+      <td style="text-align:right;font-family:var(--font-mono)">${c.orders}</td>
+      <td style="text-align:right;font-weight:600">₹${c.amount.toFixed(2)}</td>
+    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data yet.</td></tr>';
+}
+
 // ---- Manual contact edit (phone/email) ----
 // CUSTOMERS is a hardcoded array baked into this file, so edits here don't
 // touch that array permanently - they're saved to Firebase under
@@ -1567,6 +1653,37 @@ async function saveAddCustomer(){
 // pricing/scheme data for the whole catalogue.
 let _muStaged=null;
 
+// Parses an expiry cell value that may arrive as a real Excel date, a raw
+// Excel serial number (if the cell wasn't tagged as a date), or - common
+// with SAP-style exports - plain text like "22/07/2027". Returns a Date
+// or null. Indian-format DD/MM/YYYY is assumed for ambiguous slash dates.
+function _parseExpiryValue(ev){
+  if(ev instanceof Date) return isNaN(ev.getTime())?null:ev;
+  if(typeof ev==='number'){
+    const d=new Date(Math.round((ev-25569)*86400*1000)); // Excel epoch 1899-12-30
+    return isNaN(d.getTime())?null:d;
+  }
+  if(typeof ev==='string'){
+    const s=ev.trim();
+    if(!s) return null;
+    let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if(m){
+      let dd=parseInt(m[1],10), mm=parseInt(m[2],10), yy=parseInt(m[3],10);
+      if(yy<100) yy+=2000;
+      if(mm>12 && dd<=12){ const t=dd; dd=mm; mm=t; } // swap if it's actually MM/DD
+      const d=new Date(yy,mm-1,dd);
+      if(!isNaN(d.getTime())) return d;
+    }
+    m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(m){
+      const d=new Date(parseInt(m[1],10),parseInt(m[2],10)-1,parseInt(m[3],10));
+      if(!isNaN(d.getTime())) return d;
+    }
+    const d=new Date(s);
+    if(!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
 function _muNorm(s){
   return String(s==null?'':s).trim().toLowerCase().replace(/[^a-z0-9]/g,'');
 }
@@ -1773,15 +1890,7 @@ function handleMasterFile(evt){
                 let expiry='',expiryDate=null;
                 if(expiryCol!==-1&&row[expiryCol]!==''&&row[expiryCol]!=null){
                   const ev=row[expiryCol];
-                  if(ev instanceof Date){
-                    expiryDate=ev;
-                  } else if(typeof ev==='number'){
-                    // cellDates:true should already convert real date cells to
-                    // JS Date - this only fires if a cell's number format
-                    // wasn't tagged as a date. Excel's epoch is 1899-12-30.
-                    const d=new Date(Math.round((ev-25569)*86400*1000));
-                    if(!isNaN(d.getTime())) expiryDate=d;
-                  }
+                  expiryDate=_parseExpiryValue(ev);
                   expiry=expiryDate?expiryDate.toLocaleDateString('en-IN'):String(ev);
                 }
                 if(!staged.stockUpdates[cf]) staged.stockUpdates[cf]={};
@@ -2483,6 +2592,80 @@ function _sortMasterLists(){
     });
   });
 })();
+</script>
+<script>
+// ===================== ADMIN: NEW-ORDER NOTIFICATIONS (admin-only, per-device toggle) =====================
+// Each device/browser remembers its own on/off choice (localStorage) - so
+// on a shared admin password, one manager's phone can stay ON while
+// another device (e.g. the owner's) stays OFF, independently.
+let _knownOrderIds=null; // null = not yet initialised for this session
+
+function _notifEnabled(){
+  try{ return localStorage.getItem('pil-admin-notif')==='on'; }catch(e){ return false; }
+}
+function _updateNotifIcon(){
+  document.querySelectorAll('.notif-toggle').forEach(btn=>{
+    const on=_notifEnabled()&&typeof Notification!=='undefined'&&Notification.permission==='granted';
+    btn.innerHTML=on?'<i class="ti ti-bell"></i>':'<i class="ti ti-bell-off"></i>';
+    btn.title=on?'Order notifications: ON (tap to turn off)':'Order notifications: OFF (tap to turn on)';
+    btn.style.color=on?'var(--verdigris-deep)':'var(--color-text-secondary)';
+  });
+}
+async function toggleAdminNotifications(){
+  if(typeof Notification==='undefined'){
+    _showInfoModal('Not supported','Your browser doesn\'t support notifications.');
+    return;
+  }
+  if(_notifEnabled()){
+    try{ localStorage.setItem('pil-admin-notif','off'); }catch(e){}
+    _updateNotifIcon();
+    return;
+  }
+  if(Notification.permission==='denied'){
+    _showInfoModal('Notifications blocked','You previously blocked notifications for this site in your browser settings. To turn them back on, open your browser\'s site settings for this page and allow "Notifications", then try again.');
+    return;
+  }
+  const perm=await Notification.requestPermission();
+  if(perm==='granted'){
+    try{ localStorage.setItem('pil-admin-notif','on'); }catch(e){}
+    _updateNotifIcon();
+    new Notification('Notifications turned on',{body:'You\'ll be alerted here when a new order comes in, as long as this app stays open (even in the background).'});
+  } else {
+    try{ localStorage.setItem('pil-admin-notif','off'); }catch(e){}
+    _updateNotifIcon();
+  }
+}
+
+// Compares each live orders snapshot against the previously-seen set of
+// order IDs. The FIRST snapshot after login just records what's already
+// there (no notification - those aren't "new"). Every snapshot after that
+// fires a notification for any order ID that wasn't seen before.
+// Note: this only works while the app/tab is open (can be minimised/in the
+// background) - a fully closed browser needs a server-side push service
+// (Firebase Cloud Functions + FCM), which this app doesn't have set up.
+function _checkForNewOrdersAndNotify(data){
+  const currentIds=Object.keys(data||{});
+  if(_knownOrderIds===null){
+    _knownOrderIds=new Set(currentIds);
+    return;
+  }
+  const newIds=currentIds.filter(id=>!_knownOrderIds.has(id));
+  _knownOrderIds=new Set(currentIds);
+  if(!newIds.length) return;
+  if(!_notifEnabled()||typeof Notification==='undefined'||Notification.permission!=='granted') return;
+
+  newIds.forEach(id=>{
+    const o=data[id];
+    if(!o) return;
+    try{
+      const n=new Notification('New order received',{
+        body:`${(o.customer&&o.customer.name)||'Customer'} (${(o.customer&&o.customer.city)||''}) \u2014 ${(o.items||[]).length} item(s), \u20b9${(o.total||0).toFixed(2)}`,
+        tag:id
+      });
+      n.onclick=()=>{ window.focus(); showOrderDetail(id); n.close(); };
+    }catch(e){ console.warn('Notification failed:',e); }
+  });
+}
 </script>
 <script>
 let _deferredInstallPrompt = null;
