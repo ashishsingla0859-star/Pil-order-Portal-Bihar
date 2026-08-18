@@ -161,7 +161,7 @@
   .content { flex: 1; padding: 20px; overflow: auto; max-width: 100%; }
   .page-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 16px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 9px 10px; border-bottom: 1.5px solid var(--color-border-primary); color: var(--color-text-secondary); font-weight: 600; font-size: 11px; white-space: nowrap; background: var(--color-background-secondary); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.4px; }
+  th { text-align: left; padding: 9px 10px; border-bottom: 1.5px solid var(--color-border-primary); color: var(--color-text-secondary); font-weight: 600; font-size: 11px; white-space: nowrap; background: var(--color-background-secondary); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.4px; position: sticky; top: 0; z-index: 5; }
   td { padding: 8px 10px; border-bottom: 1px solid var(--color-border-tertiary); vertical-align: middle; font-variant-numeric: tabular-nums; }
   tr:hover td { background: var(--color-background-secondary); }
   .qty-input { width: 68px; padding: 4px 6px; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); text-align: center; font-size: 13px; font-family: var(--font-mono); background: var(--color-background-primary); color: var(--color-text-primary); }
@@ -307,8 +307,8 @@
             <input id="prod-search" placeholder="Search product..." oninput="renderProducts()" style="padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;font-family:var(--font-sans);width:160px" />
           </div>
         </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <div style="overflow-x:auto">
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto;overflow-y:visible">
             <table>
               <thead><tr>
                 <th>Sr. No.</th>
@@ -337,7 +337,7 @@
             <i class="ti ti-file-spreadsheet"></i> Export to Excel
           </button>
         </div>
-        <div class="card" style="padding:0;overflow:hidden">
+        <div class="card" style="padding:0">
           <table>
             <thead><tr><th>Order ID</th><th>Date &amp; Time</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th></tr></thead>
             <tbody id="hist-tbody"></tbody>
@@ -414,8 +414,8 @@
             </button>
           </div>
         </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <div style="overflow-x:auto">
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto;overflow-y:visible">
             <table>
               <thead><tr><th>Order ID</th><th>Date &amp; Time</th><th>Customer</th><th>City</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th><th>Update</th><th>Export</th><th>Delete</th></tr></thead>
               <tbody id="admin-order-tbody"><tr><td colspan="10" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading orders...</td></tr></tbody>
@@ -435,8 +435,8 @@
             </button>
           </div>
         </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <div style="overflow-x:auto">
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto;overflow-y:visible">
             <table>
               <thead><tr><th>Item code</th><th>Product name</th><th>Category</th><th>UOM</th><th style="text-align:right">Shipper</th><th style="text-align:right">MRP</th><th style="text-align:right">PTD</th><th style="text-align:right">Scheme %</th><th></th></tr></thead>
               <tbody id="admin-prod-tbody"></tbody>
@@ -453,8 +453,8 @@
             <i class="ti ti-file-spreadsheet"></i> Export to Excel
           </button>
         </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <div style="overflow-x:auto">
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto;overflow-y:visible">
             <table>
               <thead><tr><th>Code</th><th>Name</th><th>City</th><th>State</th><th>SO Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
               <tbody id="admin-cust-tbody"></tbody>
@@ -502,18 +502,18 @@
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="reports-grid">
-          <div class="card" style="padding:0;overflow:hidden">
+          <div class="card" style="padding:0">
             <div style="padding:14px 16px 0;font-family:var(--font-display);font-weight:600;font-size:15px">Top-selling products</div>
-            <div style="overflow-x:auto">
+            <div style="overflow-x:auto;overflow-y:visible">
               <table>
                 <thead><tr><th>#</th><th>Product</th><th style="text-align:right">Qty sold</th><th style="text-align:right">Amount</th></tr></thead>
                 <tbody id="report-products-tbody"></tbody>
               </table>
             </div>
           </div>
-          <div class="card" style="padding:0;overflow:hidden">
+          <div class="card" style="padding:0">
             <div style="padding:14px 16px 0;font-family:var(--font-display);font-weight:600;font-size:15px">Top customers</div>
-            <div style="overflow-x:auto">
+            <div style="overflow-x:auto;overflow-y:visible">
               <table>
                 <thead><tr><th>#</th><th>Customer</th><th style="text-align:right">Orders</th><th style="text-align:right">Amount</th></tr></thead>
                 <tbody id="report-customers-tbody"></tbody>
