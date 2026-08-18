@@ -466,12 +466,40 @@
         <div class="page-title">Reports</div>
         <div class="filter-row">
           <label style="font-size:12px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px">
+            Period:
+            <select id="report-period-filter" onchange="renderAdminReports()" style="padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;font-family:var(--font-sans);background:var(--color-background-primary);color:var(--color-text-primary)">
+              <option value="this_month" selected>This month</option>
+              <option value="last_month">Last month</option>
+              <option value="last_3_months">Last 3 months</option>
+              <option value="this_year">This year</option>
+              <option value="all_time">All time</option>
+            </select>
+          </label>
+          <label style="font-size:12px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px">
             Based on:
             <select id="report-status-filter" onchange="renderAdminReports()" style="padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;font-family:var(--font-sans);background:var(--color-background-primary);color:var(--color-text-primary)">
               <option value="all">All orders</option>
               <option value="Confirmed">Confirmed orders only</option>
             </select>
           </label>
+          <span id="report-period-label" style="font-size:12px;color:var(--color-text-secondary);font-family:var(--font-mono)"></span>
+          <button class="btn btn-excel btn-sm" onclick="exportReportsExcel()" style="margin-left:auto">
+            <i class="ti ti-file-spreadsheet"></i> Export to Excel
+          </button>
+        </div>
+        <div class="stat-grid" id="report-stat-grid">
+          <div class="stat">
+            <div class="stat-label">Orders</div>
+            <div class="stat-val" id="report-stat-orders">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Revenue (PTD)</div>
+            <div class="stat-val" id="report-stat-revenue">₹0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Avg order value</div>
+            <div class="stat-val" id="report-stat-avg">₹0</div>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="reports-grid">
           <div class="card" style="padding:0;overflow:hidden">
@@ -1310,13 +1338,47 @@ function renderAdminCustomers(){
 }
 
 // ===================== REPORTS (top products / top customers) =====================
-function renderAdminReports(){
+function _reportPeriodRange(period){
+  const now=new Date();
+  const startOfDay=(d)=>new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  const startOfMonth=(y,m)=>new Date(y,m,1).getTime();
+  if(period==='this_month'){
+    return {from:startOfMonth(now.getFullYear(),now.getMonth()),to:Infinity,label:now.toLocaleDateString('en-IN',{month:'long',year:'numeric'})};
+  }
+  if(period==='last_month'){
+    const lm=new Date(now.getFullYear(),now.getMonth()-1,1);
+    return {from:startOfMonth(lm.getFullYear(),lm.getMonth()),to:startOfMonth(now.getFullYear(),now.getMonth()),label:lm.toLocaleDateString('en-IN',{month:'long',year:'numeric'})};
+  }
+  if(period==='last_3_months'){
+    const from=new Date(now.getFullYear(),now.getMonth()-2,1);
+    return {from:startOfMonth(from.getFullYear(),from.getMonth()),to:Infinity,label:`${from.toLocaleDateString('en-IN',{month:'short',year:'numeric'})} \u2013 ${now.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}`};
+  }
+  if(period==='this_year'){
+    return {from:startOfMonth(now.getFullYear(),0),to:Infinity,label:String(now.getFullYear())};
+  }
+  return {from:-Infinity,to:Infinity,label:'All time'};
+}
+
+// Shared by the on-screen tables and the Excel export, so the download
+// always matches exactly what's currently shown - same period, same
+// status filter, same numbers.
+function _computeReportData(){
   const statusFilter=document.getElementById('report-status-filter').value;
-  const orders=Object.values(allOrders||{}).filter(o=>statusFilter==='all'||o.status===statusFilter);
+  const periodSel=document.getElementById('report-period-filter').value;
+  const {from,to,label}=_reportPeriodRange(periodSel);
 
-  const productTotals={}; // code -> {name, qty, amount}
-  const customerTotals={}; // code -> {name, city, orders, amount}
+  const orders=Object.values(allOrders||{}).filter(o=>{
+    if(statusFilter!=='all'&&o.status!==statusFilter) return false;
+    const ts=typeof o.timestamp==='number'?o.timestamp:0;
+    return ts>=from&&ts<to;
+  });
 
+  const orderCount=orders.length;
+  const revenue=orders.reduce((s,o)=>s+(o.total||0),0);
+  const avgOrder=orderCount?revenue/orderCount:0;
+
+  const productTotals={};
+  const customerTotals={};
   orders.forEach(o=>{
     const ccode=o.customer&&o.customer.code;
     if(ccode){
@@ -1325,32 +1387,78 @@ function renderAdminReports(){
       customerTotals[ccode].amount+=o.total||0;
     }
     (o.items||[]).forEach(it=>{
-      if(!productTotals[it.code]) productTotals[it.code]={name:it.name,qty:0,amount:0};
+      if(!productTotals[it.code]) productTotals[it.code]={code:it.code,name:it.name,qty:0,amount:0};
       productTotals[it.code].qty+=it.qty||0;
       productTotals[it.code].amount+=it.amount||0;
     });
   });
 
-  const topProducts=Object.values(productTotals).sort((a,b)=>b.qty-a.qty).slice(0,10);
-  const topCustomers=Object.values(customerTotals).sort((a,b)=>b.amount-a.amount).slice(0,10);
+  return {
+    label,statusFilter,orderCount,revenue,avgOrder,
+    topProducts:Object.values(productTotals).sort((a,b)=>b.qty-a.qty).slice(0,10),
+    topCustomers:Object.values(customerTotals).sort((a,b)=>b.amount-a.amount).slice(0,10)
+  };
+}
+
+function renderAdminReports(){
+  const r=_computeReportData();
+  document.getElementById('report-period-label').textContent=`(${r.label})`;
+  document.getElementById('report-stat-orders').textContent=r.orderCount;
+  document.getElementById('report-stat-revenue').textContent=`₹${r.revenue.toFixed(2)}`;
+  document.getElementById('report-stat-avg').textContent=`₹${r.avgOrder.toFixed(2)}`;
 
   const pBody=document.getElementById('report-products-tbody');
-  pBody.innerHTML=topProducts.length?topProducts.map((p,i)=>`
+  pBody.innerHTML=r.topProducts.length?r.topProducts.map((p,i)=>`
     <tr>
       <td style="color:var(--color-text-secondary);font-family:var(--font-mono);font-size:12px">${i+1}</td>
       <td style="font-weight:500">${p.name}</td>
       <td style="text-align:right;font-family:var(--font-mono)">${p.qty}</td>
       <td style="text-align:right;font-weight:600">₹${p.amount.toFixed(2)}</td>
-    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data yet.</td></tr>';
+    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data for this period.</td></tr>';
 
   const cBody=document.getElementById('report-customers-tbody');
-  cBody.innerHTML=topCustomers.length?topCustomers.map((c,i)=>`
+  cBody.innerHTML=r.topCustomers.length?r.topCustomers.map((c,i)=>`
     <tr>
       <td style="color:var(--color-text-secondary);font-family:var(--font-mono);font-size:12px">${i+1}</td>
       <td style="font-weight:500">${c.name}<br><span style="font-size:11px;color:var(--color-text-secondary);font-weight:400">${c.city}</span></td>
       <td style="text-align:right;font-family:var(--font-mono)">${c.orders}</td>
       <td style="text-align:right;font-weight:600">₹${c.amount.toFixed(2)}</td>
-    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data yet.</td></tr>';
+    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data for this period.</td></tr>';
+}
+
+// Downloads the exact same Top Products / Top Customers data currently
+// shown on screen, plus a Summary sheet with the period/stats.
+function exportReportsExcel(){
+  const r=_computeReportData();
+
+  const summaryData=[
+    {Field:'Period',Value:r.label},
+    {Field:'Order status filter',Value:r.statusFilter==='all'?'All orders':r.statusFilter},
+    {Field:'Total orders',Value:r.orderCount},
+    {Field:'Total revenue (PTD)',Value:r.revenue.toFixed(2)},
+    {Field:'Average order value',Value:r.avgOrder.toFixed(2)}
+  ];
+  const productData=r.topProducts.map((p,i)=>({
+    '#':i+1,'Item Code':p.code,'Product':p.name,'Qty sold':p.qty,'Amount (PTD)':p.amount.toFixed(2)
+  }));
+  const customerData=r.topCustomers.map((c,i)=>({
+    '#':i+1,'Customer':c.name,'City':c.city,'Orders':c.orders,'Amount (PTD)':c.amount.toFixed(2)
+  }));
+
+  const wb=XLSX.utils.book_new();
+  const wsSummary=XLSX.utils.json_to_sheet(summaryData);
+  wsSummary['!cols']=[{wch:22},{wch:24}];
+  XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
+
+  const wsProducts=XLSX.utils.json_to_sheet(productData.length?productData:[{'#':'','Item Code':'','Product':'No data for this period','Qty sold':'','Amount (PTD)':''}]);
+  wsProducts['!cols']=[{wch:5},{wch:14},{wch:36},{wch:12},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,wsProducts,'Top Products');
+
+  const wsCustomers=XLSX.utils.json_to_sheet(customerData.length?customerData:[{'#':'','Customer':'No data for this period','City':'','Orders':'','Amount (PTD)':''}]);
+  wsCustomers['!cols']=[{wch:5},{wch:32},{wch:18},{wch:10},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,wsCustomers,'Top Customers');
+
+  XLSX.writeFile(wb, `PIL_Reports_${dateStamp()}.xlsx`);
 }
 
 // ---- Manual contact edit (phone/email) ----
