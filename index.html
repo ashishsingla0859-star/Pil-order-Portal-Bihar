@@ -211,6 +211,11 @@
   .tod-banner .tod-author { color: var(--color-text-secondary); font-size: 11.5px; white-space: nowrap; }
   @media(max-width: 760px) { .tod-banner { padding: 8px 12px; font-size: 12px; } }
 
+  .greeting-toast { position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-12px); background: var(--color-background-primary); color: var(--color-text-primary); border: 1px solid var(--color-border-secondary); border-left: 4px solid var(--cobalt); border-radius: var(--border-radius-md); padding: 12px 20px; box-shadow: 0 8px 24px rgba(24,42,36,0.15); z-index: 9997; font-family: var(--font-sans); font-size: 13px; display: flex; align-items: center; gap: 10px; opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; }
+  .greeting-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .greeting-toast i { color: var(--amber); font-size: 18px; }
+  .greeting-toast b { font-family: var(--font-display); }
+
   @media(max-width: 760px) {
     #reports-grid { grid-template-columns: 1fr !important; }
     body { padding-bottom: 60px; } /* room for fixed bottom tab bar */
@@ -810,6 +815,7 @@ async function doLogin(){
     currentRole='admin';
     showScreen('s-admin');
     loadThoughtOfTheDay();
+    showGreetingToast('Admin');
     renderAdminCustomers();
     renderAdminProducts();
     _updateNotifIcon();
@@ -837,6 +843,7 @@ async function doLogin(){
     document.getElementById('cust-name-badge').textContent=currentCustomer.name;
     showScreen('s-customer');
     loadThoughtOfTheDay();
+    showGreetingToast(currentCustomer.name);
     buildCatFilter();renderProducts();
     subscribeOrders(()=>{
       if(document.getElementById('cp-history').style.display!=='none') renderHistory();
@@ -2806,6 +2813,35 @@ const TOD_LOCAL_QUOTES = [
   {quote:"Honesty is the first chapter in the book of wisdom.", author:"Thomas Jefferson"},
   {quote:"You don't build a business, you build people, and people build the business.", author:"Zig Ziglar"}
 ];
+
+// ===================== TIME-BASED GREETING (shown once per login) =====================
+function _timeGreeting(){
+  const h=new Date().getHours();
+  if(h>=5&&h<12) return {text:'Good morning',icon:'ti-sunrise'};
+  if(h>=12&&h<17) return {text:'Good afternoon',icon:'ti-sun'};
+  if(h>=17&&h<21) return {text:'Good evening',icon:'ti-sunset-2'};
+  return {text:'Working late tonight',icon:'ti-moon-stars'};
+}
+
+function showGreetingToast(name){
+  const g=_timeGreeting();
+  let toast=document.getElementById('greeting-toast');
+  if(toast) toast.remove();
+  toast=document.createElement('div');
+  toast.id='greeting-toast';
+  toast.className='greeting-toast';
+  toast.innerHTML=`<i class="ti ${g.icon}"></i><span>${g.text}, <b>${name}</b> \u2014 welcome back.</span>`;
+  document.body.appendChild(toast);
+  requestAnimationFrame(()=>toast.classList.add('show'));
+  setTimeout(()=>{
+    toast.classList.remove('show');
+    setTimeout(()=>toast.remove(),350);
+  },3500);
+  toast.addEventListener('click',()=>{
+    toast.classList.remove('show');
+    setTimeout(()=>toast.remove(),350);
+  });
+}
 
 function _todDayIndex(len){
   const now=new Date();
