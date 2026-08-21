@@ -205,6 +205,12 @@
      horizontally scrollable strip so rows never get crushed/clipped. */
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
+  .tod-banner { display: flex; align-items: center; gap: 10px; padding: 8px 22px; background: var(--amber-tint); border-bottom: 1px solid var(--color-border-secondary); font-size: 12.5px; color: var(--color-text-primary); }
+  .tod-banner i { color: var(--amber); font-size: 15px; flex-shrink: 0; }
+  .tod-banner .tod-quote { font-style: italic; font-family: var(--font-display); }
+  .tod-banner .tod-author { color: var(--color-text-secondary); font-size: 11.5px; white-space: nowrap; }
+  @media(max-width: 760px) { .tod-banner { padding: 8px 12px; font-size: 12px; } }
+
   @media(max-width: 760px) {
     #reports-grid { grid-template-columns: 1fr !important; }
     body { padding-bottom: 60px; } /* room for fixed bottom tab bar */
@@ -291,6 +297,7 @@
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
   </div>
+  <div id="tod-banner-customer" class="tod-banner" style="display:none"></div>
   <div class="main-layout">
     <div class="sidebar">
       <div class="nav-item active" onclick="custNav('order')" id="cnav-order"><i class="ti ti-shopping-cart"></i> Order now</div>
@@ -385,6 +392,7 @@
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
   </div>
+  <div id="tod-banner-admin" class="tod-banner" style="display:none"></div>
   <div class="main-layout">
     <div class="sidebar">
       <div class="nav-item active" onclick="adminNav('orders')" id="anav-orders"><i class="ti ti-clipboard-list"></i> All orders</div>
@@ -801,6 +809,7 @@ async function doLogin(){
     if(pw!==window.ADMIN_PASSWORD){err.textContent='Incorrect admin password.';err.style.display='block';return;}
     currentRole='admin';
     showScreen('s-admin');
+    loadThoughtOfTheDay();
     renderAdminCustomers();
     renderAdminProducts();
     _updateNotifIcon();
@@ -827,6 +836,7 @@ async function doLogin(){
     currentRole='customer';
     document.getElementById('cust-name-badge').textContent=currentCustomer.name;
     showScreen('s-customer');
+    loadThoughtOfTheDay();
     buildCatFilter();renderProducts();
     subscribeOrders(()=>{
       if(document.getElementById('cp-history').style.display!=='none') renderHistory();
@@ -2764,6 +2774,84 @@ function _checkForNewOrdersAndNotify(data){
       });
       n.onclick=()=>{ window.focus(); showOrderDetail(id); n.close(); };
     }catch(e){ console.warn('Notification failed:',e); }
+  });
+}
+</script>
+<script>
+// ===================== THOUGHT OF THE DAY =====================
+// Tries a free public quotes API (seeded by today's date, so everyone sees
+// the same quote all day and it changes automatically at midnight). If the
+// API is ever unreachable, falls back to a local list - the banner never
+// just breaks or stays blank. Result is cached per-day so repeat visits
+// don't re-fetch.
+const TOD_LOCAL_QUOTES = [
+  {quote:"The secret of getting ahead is getting started.", author:"Mark Twain"},
+  {quote:"Well done is better than well said.", author:"Benjamin Franklin"},
+  {quote:"Quality is not an act, it is a habit.", author:"Aristotle"},
+  {quote:"Small daily improvements are the key to staggering long-term results.", author:"Robin Sharma"},
+  {quote:"Take care of your customers and they will take care of your business.", author:"Unknown"},
+  {quote:"Health is the greatest wealth.", author:"Virgil"},
+  {quote:"The way to get started is to quit talking and begin doing.", author:"Walt Disney"},
+  {quote:"Efficiency is doing things right; effectiveness is doing the right things.", author:"Peter Drucker"},
+  {quote:"Trust is built with consistency.", author:"Lincoln Chafee"},
+  {quote:"Discipline is the bridge between goals and accomplishment.", author:"Jim Rohn"},
+  {quote:"A good plan today is better than a perfect plan tomorrow.", author:"George S. Patton"},
+  {quote:"Service to others is the rent you pay for your room here on earth.", author:"Muhammad Ali"},
+  {quote:"Opportunities don't happen, you create them.", author:"Chris Grosser"},
+  {quote:"Details create the big picture.", author:"Sanford I. Weill"},
+  {quote:"It always seems impossible until it's done.", author:"Nelson Mandela"},
+  {quote:"Great things are done by a series of small things brought together.", author:"Vincent Van Gogh"},
+  {quote:"Success is the sum of small efforts, repeated day in and day out.", author:"Robert Collier"},
+  {quote:"The customer's perception is your reality.", author:"Kate Zabriskie"},
+  {quote:"Honesty is the first chapter in the book of wisdom.", author:"Thomas Jefferson"},
+  {quote:"You don't build a business, you build people, and people build the business.", author:"Zig Ziglar"}
+];
+
+function _todDayIndex(len){
+  const now=new Date();
+  const start=new Date(now.getFullYear(),0,0);
+  const dayOfYear=Math.floor((now-start)/86400000);
+  return dayOfYear%len;
+}
+
+async function loadThoughtOfTheDay(){
+  const todayKey=new Date().toISOString().slice(0,10);
+  let quote,author;
+
+  let cached=null;
+  try{
+    const raw=localStorage.getItem('pil-tod-cache');
+    if(raw){
+      const parsed=JSON.parse(raw);
+      if(parsed.date===todayKey) cached=parsed;
+    }
+  }catch(e){}
+
+  if(cached){
+    quote=cached.quote; author=cached.author;
+  } else {
+    try{
+      const seed=todayKey.replace(/-/g,'');
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),5000);
+      const res=await fetch(`https://quotesapi.prayushadhikari.com.np/api/quotes?order=random&seed=${seed}&limit=1`,{signal:controller.signal});
+      clearTimeout(timeout);
+      if(!res.ok) throw new Error('bad response');
+      const json=await res.json();
+      const q=json.data&&json.data[0];
+      if(!q||!q.quote) throw new Error('no quote in response');
+      quote=q.quote; author=q.author||'';
+    }catch(e){
+      const idx=_todDayIndex(TOD_LOCAL_QUOTES.length);
+      quote=TOD_LOCAL_QUOTES[idx].quote; author=TOD_LOCAL_QUOTES[idx].author;
+    }
+    try{ localStorage.setItem('pil-tod-cache',JSON.stringify({date:todayKey,quote,author})); }catch(e){}
+  }
+
+  const html=`<i class="ti ti-bulb"></i><span class="tod-quote">"${quote}"</span><span class="tod-author">\u2014 ${author}</span>`;
+  ['tod-banner-customer','tod-banner-admin'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){ el.innerHTML=html; el.style.display='flex'; }
   });
 }
 </script>
