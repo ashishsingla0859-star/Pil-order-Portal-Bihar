@@ -216,23 +216,6 @@
   .greeting-toast i { color: var(--amber); font-size: 18px; }
   .greeting-toast b { font-family: var(--font-display); }
 
-  .festival-cal { margin: 14px 10px 0; padding: 12px 12px 10px; border-top: 1px solid var(--color-border-tertiary); }
-  .festival-cal-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--color-text-secondary); font-family: var(--font-mono); margin-bottom: 8px; }
-  .festival-cal-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; }
-  .festival-cal-item .fc-emoji { font-size: 15px; flex-shrink: 0; }
-  .festival-cal-item .fc-name { flex: 1; color: var(--color-text-primary); }
-  .festival-cal-item .fc-days { font-size: 10px; color: var(--color-text-secondary); font-family: var(--font-mono); white-space: nowrap; }
-  @media(max-width: 760px) { .festival-cal { display: none; } }
-
-  /* Festive accent: when a festival is within 5 days, the amber accent
-     temporarily shifts to a festival-appropriate colour across buttons,
-     active nav, stat tabs etc. Layered on top of light/dark theme, not a
-     full repaint - the app stays fully usable either way. */
-  html[data-festival] { --amber: var(--festival-color, var(--amber)); }
-  html[data-festival] .topbar { border-bottom-color: var(--festival-color, var(--color-border-secondary)); border-bottom-width: 3px; }
-  .festival-banner { display: none; align-items: center; gap: 8px; padding: 6px 22px; font-size: 12px; font-weight: 500; }
-  html[data-festival] .festival-banner { display: flex; }
-  @media(max-width: 760px) { .festival-banner { padding: 6px 12px; } }
 
   @media(max-width: 760px) {
     #reports-grid { grid-template-columns: 1fr !important; }
@@ -321,13 +304,11 @@
     </div>
   </div>
   <div id="tod-banner-customer" class="tod-banner" style="display:none"></div>
-  <div id="festival-banner-customer" class="festival-banner"></div>
   <div class="main-layout">
     <div class="sidebar">
       <div class="nav-item active" onclick="custNav('order')" id="cnav-order"><i class="ti ti-shopping-cart"></i> Order now</div>
       <div class="nav-item" onclick="custNav('history')" id="cnav-history"><i class="ti ti-clock"></i> My orders</div>
       <div class="nav-item" onclick="custNav('changepass')" id="cnav-changepass"><i class="ti ti-lock"></i> Change password</div>
-      <div id="festival-cal-customer" class="festival-cal"></div>
     </div>
     <div class="content">
       <div id="cp-order">
@@ -418,14 +399,12 @@
     </div>
   </div>
   <div id="tod-banner-admin" class="tod-banner" style="display:none"></div>
-  <div id="festival-banner-admin" class="festival-banner"></div>
   <div class="main-layout">
     <div class="sidebar">
       <div class="nav-item active" onclick="adminNav('orders')" id="anav-orders"><i class="ti ti-clipboard-list"></i> All orders</div>
       <div class="nav-item" onclick="adminNav('products')" id="anav-products"><i class="ti ti-package"></i> Products</div>
       <div class="nav-item" onclick="adminNav('customers')" id="anav-customers"><i class="ti ti-users"></i> Customers</div>
       <div class="nav-item" onclick="adminNav('reports')" id="anav-reports"><i class="ti ti-chart-bar"></i> Reports</div>
-      <div id="festival-cal-admin" class="festival-cal"></div>
     </div>
     <div class="content">
       <div id="ap-orders">
@@ -838,8 +817,6 @@ async function doLogin(){
     showScreen('s-admin');
     loadThoughtOfTheDay();
     showGreetingToast('Admin');
-    renderFestivalCalendar();
-    applyFestivalTheme();
     renderAdminCustomers();
     renderAdminProducts();
     _updateNotifIcon();
@@ -868,8 +845,6 @@ async function doLogin(){
     showScreen('s-customer');
     loadThoughtOfTheDay();
     showGreetingToast(currentCustomer.name);
-    renderFestivalCalendar();
-    applyFestivalTheme();
     buildCatFilter();renderProducts();
     subscribeOrders(()=>{
       if(document.getElementById('cp-history').style.display!=='none') renderHistory();
@@ -2900,95 +2875,6 @@ async function loadThoughtOfTheDay(){
   ['tod-banner-customer','tod-banner-admin'].forEach(id=>{
     const el=document.getElementById(id);
     if(el){ el.innerHTML=html; el.style.display='flex'; }
-  });
-}
-</script>
-<script>
-// ===================== FESTIVAL CALENDAR + FESTIVE THEME =====================
-// FIXED festivals (same Gregorian date every year) are computed automatically
-// via _nextFixedDate() - no maintenance needed, ever.
-//
-// LUNAR festivals (Hindu lunisolar calendar) shift every year and CANNOT be
-// computed without a panchang library, so their dates are hardcoded below
-// for 2026/2027 from Drik Panchang. *** UPDATE THIS LIST EVERY DECEMBER ***
-// with next year's confirmed dates (drikpanchang.com) or these will simply
-// stop appearing once their hardcoded date has passed.
-function _nextFixedDate(month,day){ // month: 1-12
-  const now=new Date();
-  let year=now.getFullYear();
-  let d=new Date(year,month-1,day);
-  if(d<new Date(now.getFullYear(),now.getMonth(),now.getDate())) d=new Date(year+1,month-1,day);
-  return d.toISOString().slice(0,10);
-}
-
-const FESTIVALS=[
-  // Fixed (auto-renewing every year)
-  {name:'Republic Day',emoji:'🇮🇳',date:_nextFixedDate(1,26),color:'#FF9933'},
-  {name:'Independence Day',emoji:'🇮🇳',date:_nextFixedDate(8,15),color:'#138808'},
-  {name:'Christmas',emoji:'🎄',date:_nextFixedDate(12,25),color:'#B91C1C'},
-  {name:'New Year',emoji:'🎉',date:_nextFixedDate(1,1),color:'#1F4E93'},
-  // Lunar - hardcoded for 2026/27, needs yearly update (see note above)
-  {name:'Durga Puja',emoji:'🙏',date:'2026-10-20',color:'#B91C1C'},
-  {name:'Dhanteras',emoji:'🪔',date:'2026-11-06',color:'#BD7524'},
-  {name:'Diwali',emoji:'🪔',date:'2026-11-08',color:'#BD7524'},
-  {name:'Bhai Dooj',emoji:'🎁',date:'2026-11-11',color:'#B45309'},
-  {name:'Chhath Puja',emoji:'🌅',date:'2026-11-15',color:'#D97706'},
-  {name:'Guru Nanak Jayanti',emoji:'🙏',date:'2026-11-24',color:'#1F4E93'},
-  {name:'Diwali',emoji:'🪔',date:'2027-10-29',color:'#BD7524'}
-];
-
-function _daysUntil(dateStr){
-  const target=new Date(dateStr+'T00:00:00');
-  const today=new Date(); today.setHours(0,0,0,0);
-  return Math.round((target-today)/86400000);
-}
-
-function renderFestivalCalendar(){
-  const upcoming=FESTIVALS
-    .map(f=>({...f,daysLeft:_daysUntil(f.date)}))
-    .filter(f=>f.daysLeft>=0)
-    .sort((a,b)=>a.daysLeft-b.daysLeft)
-    .slice(0,4);
-
-  const html=`<div class="festival-cal-title">Upcoming festivals</div>`+
-    (upcoming.length?upcoming.map(f=>`
-      <div class="festival-cal-item">
-        <span class="fc-emoji">${f.emoji}</span>
-        <span class="fc-name">${f.name}</span>
-        <span class="fc-days">${f.daysLeft===0?'Today':f.daysLeft+'d'}</span>
-      </div>`).join(''):'<div style="font-size:11px;color:var(--color-text-secondary)">No upcoming festivals listed.</div>');
-
-  ['festival-cal-customer','festival-cal-admin'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.innerHTML=html;
-  });
-}
-
-// If a festival is within the next 5 days, apply a festive accent colour
-// across the app (buttons, active nav, topbar border) and show a small
-// banner - layered on top of light/dark theme, not a full repaint.
-function applyFestivalTheme(){
-  const active=FESTIVALS
-    .map(f=>({...f,daysLeft:_daysUntil(f.date)}))
-    .filter(f=>f.daysLeft>=0&&f.daysLeft<=5)
-    .sort((a,b)=>a.daysLeft-b.daysLeft)[0];
-
-  if(!active){
-    document.documentElement.removeAttribute('data-festival');
-    document.documentElement.style.removeProperty('--festival-color');
-    document.querySelectorAll('.festival-banner').forEach(el=>el.innerHTML='');
-    return;
-  }
-
-  document.documentElement.setAttribute('data-festival',active.name.toLowerCase().replace(/\s+/g,'-'));
-  document.documentElement.style.setProperty('--festival-color',active.color);
-  const msg=active.daysLeft===0
-    ? `${active.emoji} Happy ${active.name}! From all of us at Pil Order Portal-Bihar.`
-    : `${active.emoji} ${active.name} in ${active.daysLeft} day${active.daysLeft===1?'':'s'} \u2014 wishing you an early greeting!`;
-  document.querySelectorAll('.festival-banner').forEach(el=>{
-    el.innerHTML=`<span>${msg}</span>`;
-    el.style.background=active.color+'22';
-    el.style.color=active.color;
   });
 }
 </script>
