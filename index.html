@@ -2811,33 +2811,32 @@ function _checkForNewOrdersAndNotify(data){
 }
 </script>
 <script>
-// ===================== THOUGHT OF THE DAY =====================
-// Tries a free public quotes API (seeded by today's date, so everyone sees
-// the same quote all day and it changes automatically at midnight). If the
-// API is ever unreachable, falls back to a local list - the banner never
-// just breaks or stays blank. Result is cached per-day so repeat visits
-// don't re-fetch.
+// ===================== THOUGHT OF THE DAY (Hindi) =====================
+// Picks one quote per day from a curated Hindi list, using the day of the
+// year as the index - so it's the same quote for everyone all day, and
+// changes automatically at midnight. No external API (public quote APIs
+// only return English), so this never depends on network availability.
 const TOD_LOCAL_QUOTES = [
-  {quote:"The secret of getting ahead is getting started.", author:"Mark Twain"},
-  {quote:"Well done is better than well said.", author:"Benjamin Franklin"},
-  {quote:"Quality is not an act, it is a habit.", author:"Aristotle"},
-  {quote:"Small daily improvements are the key to staggering long-term results.", author:"Robin Sharma"},
-  {quote:"Take care of your customers and they will take care of your business.", author:"Unknown"},
-  {quote:"Health is the greatest wealth.", author:"Virgil"},
-  {quote:"The way to get started is to quit talking and begin doing.", author:"Walt Disney"},
-  {quote:"Efficiency is doing things right; effectiveness is doing the right things.", author:"Peter Drucker"},
-  {quote:"Trust is built with consistency.", author:"Lincoln Chafee"},
-  {quote:"Discipline is the bridge between goals and accomplishment.", author:"Jim Rohn"},
-  {quote:"A good plan today is better than a perfect plan tomorrow.", author:"George S. Patton"},
-  {quote:"Service to others is the rent you pay for your room here on earth.", author:"Muhammad Ali"},
-  {quote:"Opportunities don't happen, you create them.", author:"Chris Grosser"},
-  {quote:"Details create the big picture.", author:"Sanford I. Weill"},
-  {quote:"It always seems impossible until it's done.", author:"Nelson Mandela"},
-  {quote:"Great things are done by a series of small things brought together.", author:"Vincent Van Gogh"},
-  {quote:"Success is the sum of small efforts, repeated day in and day out.", author:"Robert Collier"},
-  {quote:"The customer's perception is your reality.", author:"Kate Zabriskie"},
-  {quote:"Honesty is the first chapter in the book of wisdom.", author:"Thomas Jefferson"},
-  {quote:"You don't build a business, you build people, and people build the business.", author:"Zig Ziglar"}
+  {quote:"जहाँ चाह, वहाँ राह।", author:"कहावत"},
+  {quote:"मेहनत का फल हमेशा मीठा होता है।", author:"कहावत"},
+  {quote:"ग्राहक की संतुष्टि ही सबसे बड़ी सफलता है।", author:"अज्ञात"},
+  {quote:"आज का काम कल पर मत टालो।", author:"कहावत"},
+  {quote:"स्वास्थ्य ही सबसे बड़ा धन है।", author:"कहावत"},
+  {quote:"अनुशासन ही सफलता की नींव है।", author:"अज्ञात"},
+  {quote:"छोटी शुरुआत से ही बड़ी मंज़िलें तय होती हैं।", author:"अज्ञात"},
+  {quote:"भरोसा कमाने में समय लगता है, पर एक पल में टूट सकता है।", author:"अज्ञात"},
+  {quote:"ईमानदारी सबसे अच्छी नीति है।", author:"कहावत"},
+  {quote:"जो आज मेहनत करता है, वही कल फल पाता है।", author:"कहावत"},
+  {quote:"गुणवत्ता कोई घटना नहीं, एक आदत है।", author:"अरस्तू"},
+  {quote:"सेवा ही सबसे बड़ा धर्म है।", author:"कहावत"},
+  {quote:"हर मुश्किल के बाद आसानी है।", author:"कहावत"},
+  {quote:"समय पर किया गया काम ही असली काम है।", author:"अज्ञात"},
+  {quote:"बड़े सपने देखो, मेहनत ज़्यादा करो।", author:"अज्ञात"},
+  {quote:"सच्ची लगन से हर लक्ष्य पाया जा सकता है।", author:"अज्ञात"},
+  {quote:"रिश्ते निभाना ही व्यापार की असली पूँजी है।", author:"अज्ञात"},
+  {quote:"जो सीखना बंद कर देता है, वह आगे बढ़ना बंद कर देता है।", author:"अज्ञात"},
+  {quote:"धैर्य और मेहनत से हर काम पूरा होता है।", author:"कहावत"},
+  {quote:"आज का एक कदम, कल की बड़ी सफलता है।", author:"अज्ञात"}
 ];
 
 // ===================== TIME-BASED GREETING (shown once per login) =====================
@@ -2892,21 +2891,8 @@ async function loadThoughtOfTheDay(){
   if(cached){
     quote=cached.quote; author=cached.author;
   } else {
-    try{
-      const seed=todayKey.replace(/-/g,'');
-      const controller=new AbortController();
-      const timeout=setTimeout(()=>controller.abort(),5000);
-      const res=await fetch(`https://quotesapi.prayushadhikari.com.np/api/quotes?order=random&seed=${seed}&limit=1`,{signal:controller.signal});
-      clearTimeout(timeout);
-      if(!res.ok) throw new Error('bad response');
-      const json=await res.json();
-      const q=json.data&&json.data[0];
-      if(!q||!q.quote) throw new Error('no quote in response');
-      quote=q.quote; author=q.author||'';
-    }catch(e){
-      const idx=_todDayIndex(TOD_LOCAL_QUOTES.length);
-      quote=TOD_LOCAL_QUOTES[idx].quote; author=TOD_LOCAL_QUOTES[idx].author;
-    }
+    const idx=_todDayIndex(TOD_LOCAL_QUOTES.length);
+    quote=TOD_LOCAL_QUOTES[idx].quote; author=TOD_LOCAL_QUOTES[idx].author;
     try{ localStorage.setItem('pil-tod-cache',JSON.stringify({date:todayKey,quote,author})); }catch(e){}
   }
 
