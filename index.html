@@ -2856,7 +2856,7 @@ async function loadThoughtOfTheDay(){
 
   let cached=null;
   try{
-    const raw=localStorage.getItem('pil-tod-cache');
+    const raw=localStorage.getItem('pil-tod-cache-hi');
     if(raw){
       const parsed=JSON.parse(raw);
       if(parsed.date===todayKey) cached=parsed;
@@ -2868,7 +2868,7 @@ async function loadThoughtOfTheDay(){
   } else {
     const idx=_todDayIndex(TOD_LOCAL_QUOTES.length);
     quote=TOD_LOCAL_QUOTES[idx].quote; author=TOD_LOCAL_QUOTES[idx].author;
-    try{ localStorage.setItem('pil-tod-cache',JSON.stringify({date:todayKey,quote,author})); }catch(e){}
+    try{ localStorage.setItem('pil-tod-cache-hi',JSON.stringify({date:todayKey,quote,author})); }catch(e){}
   }
 
   const html=`<i class="ti ti-bulb"></i><span class="tod-quote">"${quote}"</span><span class="tod-author">\u2014 ${author}</span>`;
