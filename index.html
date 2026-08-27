@@ -856,6 +856,7 @@ function logout(){
   unsubscribeOrders();
   currentRole=null;currentCustomer=null;
   _knownOrderIds=null;
+  CART={};
   document.getElementById('pw-input').value='';
   showScreen('s-login');
 }
@@ -902,6 +903,13 @@ function getFilteredProducts(catId,searchId){
   const q=(document.getElementById(searchId).value||'').toLowerCase();
   return PRODUCTS.filter(p=>(!cat||p.cat===cat)&&(!q||p.name.toLowerCase().includes(q)||p.code.toLowerCase().includes(q)));
 }
+
+// Quantities and batch picks the customer has entered, keyed by product
+// code. This is the source of truth - NOT the DOM inputs - because
+// renderProducts() rebuilds #prod-tbody's HTML from scratch on every
+// search/category change, which would otherwise wipe out anything typed
+// for products that scroll out of the current filtered view.
+let CART={}; // code -> { qty, batchIdx }
 
 // Returns 'in' | 'out' | 'unknown' for a product code against the
 // logged-in stockist's C&F. LIVE_STOCK (Firebase /stock, updated by the
@@ -957,12 +965,13 @@ function _getBatchesFor(code){
   if(!currentCustomer||!currentCustomer.cf) return [];
   return (LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[currentCustomer.cf]&&LIVE_STOCK_BATCHES[currentCustomer.cf][code])||[];
 }
-function _batchOptionHtml(b,idx){
+function _batchOptionHtml(b,idx,selectedIdx){
   const bucket=_expiryBucket(b.expiryTs);
   const color=_bucketColor(bucket);
   const label=`${b.batch||'—'} (${b.expiry||'no expiry'}) · Stock ${b.qty}`;
   const mark=bucket==='red'?'⚠ ':(bucket==='green'?'● ':'');
-  return `<option value="${idx}" data-bucket="${bucket}" ${color?`style="color:${color};font-weight:600"`:''}>${mark}${label}</option>`;
+  const sel=idx===selectedIdx?' selected':'';
+  return `<option value="${idx}" data-bucket="${bucket}" ${sel}${color?` style="color:${color};font-weight:600"`:''}>${mark}${label}</option>`;
 }
 function onBatchSelectChange(sel){
   const opt=sel.options[sel.selectedIndex];
@@ -970,12 +979,18 @@ function onBatchSelectChange(sel){
   const color=_bucketColor(bucket);
   sel.style.color=color;
   sel.style.fontWeight=color?'600':'';
+  const code=sel.dataset.code;
+  if(code){
+    if(!CART[code]) CART[code]={};
+    CART[code].batchIdx=sel.selectedIndex;
+  }
 }
 function renderBatchCell(code){
   const batches=_getBatchesFor(code);
   if(!batches.length) return '<span style="color:var(--color-text-secondary);font-size:12px">—</span>';
-  const opts=batches.map((b,idx)=>_batchOptionHtml(b,idx)).join('');
-  const firstColor=_bucketColor(_expiryBucket(batches[0].expiryTs));
+  const preselected=CART[code]&&CART[code].batchIdx!=null?CART[code].batchIdx:0;
+  const opts=batches.map((b,idx)=>_batchOptionHtml(b,idx,preselected)).join('');
+  const firstColor=_bucketColor(_expiryBucket(batches[preselected].expiryTs));
   return `<select class="batch-select" id="batch-${code}" data-code="${code}" onchange="onBatchSelectChange(this)" style="font-size:12px;padding:3px 4px;max-width:220px;${firstColor?`color:${firstColor};font-weight:600`:''}">${opts}</select>`;
 }
 
@@ -992,9 +1007,22 @@ function renderProducts(){
       <td style="text-align:right;font-weight:600;color:var(--cobalt-deep);font-family:var(--font-mono)">${p.ptd.toFixed(2)}</td>
       <td style="text-align:right;color:${p.scheme?'#B45309':'var(--color-text-secondary)'}">${p.scheme?p.scheme+'%':'—'}</td>
       <td>${renderBatchCell(p.code)}</td>
-      <td style="text-align:center"><input type="number" min="0" step="1" class="qty-input" id="qty-${p.code}" data-code="${p.code}" value="" placeholder="0" oninput="calcTotal()" /></td>
+      <td style="text-align:center"><input type="number" min="0" step="1" class="qty-input" id="qty-${p.code}" data-code="${p.code}" value="${CART[p.code]&&CART[p.code].qty?CART[p.code].qty:''}" placeholder="0" oninput="onQtyInput(this)" /></td>
       <td style="text-align:right;font-weight:500" id="amt-${p.code}">—</td>
     </tr>`).join('');
+  calcTotal();
+}
+
+function onQtyInput(inp){
+  const code=inp.dataset.code;
+  const qty=parseInt(inp.value)||0;
+  if(qty>0){
+    if(!CART[code]) CART[code]={};
+    CART[code].qty=qty;
+  } else if(CART[code]){
+    delete CART[code].qty;
+    if(CART[code].batchIdx==null) delete CART[code];
+  }
   calcTotal();
 }
 
@@ -1004,16 +1032,25 @@ function renderProducts(){
 // the discount just shows up in the Amount column as they type qty.
 function calcTotal(){
   let total=0,count=0;
+  Object.keys(CART).forEach(code=>{
+    const qty=CART[code].qty||0;
+    if(qty<=0) return;
+    const p=PRODUCTS.find(x=>x.code===code);
+    if(!p) return;
+    const scheme=p.scheme||0;
+    const amt=qty*p.ptd*(1-scheme/100);
+    total+=amt; count++;
+  });
+  // Update whichever rows are currently visible (amount cell + stock colour)
   PRODUCTS.forEach(p=>{
     const inp=document.getElementById('qty-'+p.code);
     if(!inp) return;
     applyStockStyle(inp,getStockStatus(p.code));
-    const qty=parseInt(inp.value)||0;
+    const qty=(CART[p.code]&&CART[p.code].qty)||0;
     const scheme=p.scheme||0;
     const amt=qty*p.ptd*(1-scheme/100);
     const cell=document.getElementById('amt-'+p.code);
     if(cell) cell.textContent=qty>0?'₹'+amt.toFixed(2):'—';
-    if(qty>0){total+=amt;count++;}
   });
   document.getElementById('order-total').textContent='₹'+total.toFixed(2);
   document.getElementById('item-count').textContent=count;
@@ -1049,21 +1086,20 @@ async function decrementStockForOrder(cf,items){
 async function submitOrder(){
   if(!fb()){alert('Firebase not ready. Please refresh.');return;}
   const items=[];
-  PRODUCTS.forEach(p=>{
-    const inp=document.getElementById('qty-'+p.code);
-    if(!inp) return;
-    const qty=parseInt(inp.value)||0;
+  Object.keys(CART).forEach(code=>{
+    const qty=CART[code].qty||0;
+    if(qty<=0) return;
+    const p=PRODUCTS.find(x=>x.code===code);
+    if(!p) return;
     const scheme=p.scheme||0;
-    if(qty>0){
-      const item={code:p.code,name:p.name,qty,ptd:p.ptd,uom:p.uom,scheme,mrp:p.mrp,shipper:p.shipper,amount:qty*p.ptd*(1-scheme/100)};
-      const batchSel=document.getElementById('batch-'+p.code);
-      if(batchSel&&batchSel.options.length){
-        const batches=_getBatchesFor(p.code);
-        const chosen=batches[parseInt(batchSel.value)];
-        if(chosen){ item.batch=chosen.batch; item.expiry=chosen.expiry; }
-      }
-      items.push(item);
+    const item={code:p.code,name:p.name,qty,ptd:p.ptd,uom:p.uom,scheme,mrp:p.mrp,shipper:p.shipper,amount:qty*p.ptd*(1-scheme/100)};
+    const batches=_getBatchesFor(p.code);
+    const batchIdx=CART[code].batchIdx;
+    if(batches.length&&batchIdx!=null){
+      const chosen=batches[batchIdx];
+      if(chosen){ item.batch=chosen.batch; item.expiry=chosen.expiry; }
     }
+    items.push(item);
   });
   if(!items.length){alert('Please enter quantity for at least one product.');return;}
   const total=items.reduce((s,i)=>s+i.amount,0);
@@ -1081,8 +1117,8 @@ async function submitOrder(){
   try{
     await pushOrder(order);
     await decrementStockForOrder(currentCustomer.cf,items);
-    document.querySelectorAll('.qty-input').forEach(i=>i.value='');
-    calcTotal();
+    CART={};
+    renderProducts();
     const banner=document.getElementById('order-success');
     banner.style.display='block';
     setTimeout(()=>banner.style.display='none',5000);
