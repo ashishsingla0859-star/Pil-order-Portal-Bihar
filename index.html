@@ -216,6 +216,7 @@
   .cart-summary-bar .cs-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-secondary); font-family: var(--font-mono); flex-basis: 100%; margin-bottom: 2px; }
   .cart-summary-bar .cs-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--color-background-primary); border: 1px solid var(--color-border-secondary); border-radius: 20px; padding: 4px 6px 4px 12px; font-size: 12px; }
   .cart-summary-bar .cs-chip .cs-qty { color: var(--cobalt-deep); font-family: var(--font-mono); font-weight: 600; }
+  .cart-summary-bar .cs-chip .cs-amt { color: var(--verdigris-deep); font-family: var(--font-mono); font-size: 11px; }
   .cart-summary-bar .cs-chip .cs-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; color: var(--color-text-secondary); cursor: pointer; font-size: 12px; }
   .cart-summary-bar .cs-chip .cs-remove:hover { background: var(--color-background-danger); color: var(--color-text-danger); }
   .cart-summary-bar .cs-total { margin-left: auto; font-weight: 600; font-size: 13px; white-space: nowrap; }
@@ -1080,7 +1081,11 @@ function renderCartSidebar(total,count){
     .filter(code=>CART[code].qty>0)
     .map(code=>{
       const p=PRODUCTS.find(x=>x.code===code);
-      return p?{code,name:p.name,qty:CART[code].qty}:null;
+      if(!p) return null;
+      const scheme=p.scheme||0;
+      const qty=CART[code].qty;
+      const amt=qty*p.ptd*(1-scheme/100);
+      return {code,name:p.name,qty,amt};
     })
     .filter(Boolean);
 
@@ -1096,6 +1101,7 @@ function renderCartSidebar(total,count){
       <span class="cs-chip">
         <span>${r.name}</span>
         <span class="cs-qty">×${r.qty}</span>
+        <span class="cs-amt">₹${r.amt.toFixed(2)}</span>
         <span class="cs-remove" title="Remove" onclick="removeCartItem('${r.code}')"><i class="ti ti-x"></i></span>
       </span>`).join('')+
     `<span class="cs-total">Total: ₹${total.toFixed(2)}</span>`;
