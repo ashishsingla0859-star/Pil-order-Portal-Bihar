@@ -334,7 +334,9 @@
             </table>
         </div>
         <div class="total-bar">
-          <div style="font-size:13px;color:var(--color-text-secondary)">Items with qty: <strong id="item-count">0</strong></div>
+          <div style="font-size:13px;color:var(--color-text-secondary);cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="showCartReview()">
+            <i class="ti ti-list-check"></i> Items with qty: <strong id="item-count">0</strong> — review
+          </div>
           <div style="display:flex;align-items:center;gap:16px">
             <div>Total (PTD): <strong id="order-total" style="font-size:16px">₹0.00</strong></div>
             <button class="btn btn-primary" onclick="submitOrder()"><i class="ti ti-send"></i> Submit order</button>
@@ -1054,6 +1056,71 @@ function calcTotal(){
   });
   document.getElementById('order-total').textContent='₹'+total.toFixed(2);
   document.getElementById('item-count').textContent=count;
+}
+
+// Lets the customer see every product they've entered a quantity for, in
+// one list, regardless of what the search box / category filter currently
+// shows in the main table - so nothing selected earlier gets missed or
+// forgotten before hitting Submit.
+function showCartReview(){
+  let overlay=document.getElementById('cart-review-overlay');
+  if(overlay) overlay.remove();
+
+  const rows=Object.keys(CART)
+    .filter(code=>CART[code].qty>0)
+    .map(code=>{
+      const p=PRODUCTS.find(x=>x.code===code);
+      if(!p) return null;
+      const scheme=p.scheme||0;
+      const qty=CART[code].qty;
+      const amt=qty*p.ptd*(1-scheme/100);
+      return {code,name:p.name,uom:p.uom,qty,amt};
+    })
+    .filter(Boolean);
+
+  const total=rows.reduce((s,r)=>s+r.amt,0);
+
+  overlay=document.createElement('div');
+  overlay.id='cart-review-overlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(24,42,36,0.45);display:flex;align-items:center;justify-content:center;z-index:9998;padding:16px;';
+
+  const rowsHtml=rows.map(r=>`
+    <tr>
+      <td style="font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary)">${r.code}</td>
+      <td style="font-weight:500">${r.name}</td>
+      <td style="text-align:right">${r.qty} ${r.uom||''}</td>
+      <td style="text-align:right;font-weight:600">₹${r.amt.toFixed(2)}</td>
+      <td style="text-align:center"><button class="btn btn-sm btn-danger" title="Remove this item" onclick="removeCartItem('${r.code}')">🗑️</button></td>
+    </tr>`).join('');
+
+  overlay.innerHTML=`
+    <div style="background:var(--color-background-primary);color:var(--color-text-primary);border-radius:var(--border-radius-lg);max-width:600px;width:100%;max-height:85vh;overflow:auto;padding:22px 20px;box-shadow:0 10px 30px rgba(0,0,0,0.25);font-family:var(--font-sans);">
+      <div style="font-family:var(--font-display);font-weight:600;font-size:18px;margin-bottom:4px">Review your order</div>
+      <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px">Check everything below before submitting — including items you searched for earlier.</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%">
+          <thead><tr><th>Code</th><th>Product</th><th style="text-align:right">Qty</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+          <tbody id="cart-review-body">${rowsHtml || '<tr><td colspan="5" style="text-align:center;color:var(--color-text-secondary);padding:20px">No items selected yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-border-secondary);padding-top:12px;margin-top:14px;flex-wrap:wrap;gap:10px">
+        <div style="font-family:var(--font-display);font-size:17px;font-weight:600">Total: ₹${total.toFixed(2)}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="document.getElementById('cart-review-overlay').remove()">Keep editing</button>
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('cart-review-overlay').remove();submitOrder()"><i class="ti ti-send"></i> Looks good, submit</button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function removeCartItem(code){
+  delete CART[code];
+  const inp=document.getElementById('qty-'+code);
+  if(inp) inp.value='';
+  calcTotal();
+  if(document.getElementById('cart-review-overlay')) showCartReview();
 }
 
 // Decrements live stock for each ordered item using a Firebase transaction
