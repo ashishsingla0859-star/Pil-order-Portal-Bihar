@@ -536,6 +536,13 @@
               </table>
           </div>
         </div>
+        <div class="card" style="padding:0;margin-top:16px">
+          <div style="padding:14px 16px 0;font-family:var(--font-display);font-weight:600;font-size:15px">Sales officer-wise orders</div>
+          <table>
+              <thead><tr><th>#</th><th>Sales Officer</th><th style="text-align:right">Orders</th><th style="text-align:right">Amount</th></tr></thead>
+              <tbody id="report-so-tbody"></tbody>
+            </table>
+        </div>
       </div>
     </div>
   </div>
@@ -1235,9 +1242,10 @@ async function submitOrder(){
     await decrementStockForOrder(currentCustomer.cf,items);
     CART={};
     renderProducts();
-    const banner=document.getElementById('order-success');
-    banner.style.display='block';
-    setTimeout(()=>banner.style.display='none',5000);
+    _showInfoModal(
+      'Order submitted! ✅',
+      `Your order <b>${orderId}</b> for <b>₹${total.toFixed(2)}</b> (${items.length} item${items.length===1?'':'s'}) has been received. Our team will confirm it shortly.`
+    );
   }catch(e){
     alert('Error submitting order: '+e.message+'\nCheck your Firebase config.');
   }
@@ -1537,12 +1545,19 @@ function _computeReportData(){
 
   const productTotals={};
   const customerTotals={};
+  const soTotals={};
   orders.forEach(o=>{
     const ccode=o.customer&&o.customer.code;
     if(ccode){
       if(!customerTotals[ccode]) customerTotals[ccode]={name:o.customer.name,city:o.customer.city||'',orders:0,amount:0};
       customerTotals[ccode].orders+=1;
       customerTotals[ccode].amount+=o.total||0;
+
+      const cust=CUSTOMERS.find(c=>c.code===ccode);
+      const soName=(cust&&cust.soName&&cust.soName.trim())||'Unassigned';
+      if(!soTotals[soName]) soTotals[soName]={name:soName,orders:0,amount:0};
+      soTotals[soName].orders+=1;
+      soTotals[soName].amount+=o.total||0;
     }
     (o.items||[]).forEach(it=>{
       if(!productTotals[it.code]) productTotals[it.code]={code:it.code,name:it.name,qty:0,amount:0};
@@ -1554,7 +1569,8 @@ function _computeReportData(){
   return {
     label,statusFilter,orderCount,revenue,avgOrder,
     topProducts:Object.values(productTotals).sort((a,b)=>b.qty-a.qty).slice(0,10),
-    topCustomers:Object.values(customerTotals).sort((a,b)=>b.amount-a.amount).slice(0,10)
+    topCustomers:Object.values(customerTotals).sort((a,b)=>b.amount-a.amount).slice(0,10),
+    soWise:Object.values(soTotals).sort((a,b)=>b.amount-a.amount)
   };
 }
 
@@ -1582,6 +1598,15 @@ function renderAdminReports(){
       <td style="text-align:right;font-family:var(--font-mono)">${c.orders}</td>
       <td style="text-align:right;font-weight:600">₹${c.amount.toFixed(2)}</td>
     </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data for this period.</td></tr>';
+
+  const soBody=document.getElementById('report-so-tbody');
+  soBody.innerHTML=r.soWise.length?r.soWise.map((s,i)=>`
+    <tr>
+      <td style="color:var(--color-text-secondary);font-family:var(--font-mono);font-size:12px">${i+1}</td>
+      <td style="font-weight:500">${s.name}</td>
+      <td style="text-align:right;font-family:var(--font-mono)">${s.orders}</td>
+      <td style="text-align:right;font-weight:600">₹${s.amount.toFixed(2)}</td>
+    </tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);padding:24px">No order data for this period.</td></tr>';
 }
 
 // Downloads the exact same Top Products / Top Customers data currently
@@ -1602,6 +1627,9 @@ function exportReportsExcel(){
   const customerData=r.topCustomers.map((c,i)=>({
     '#':i+1,'Customer':c.name,'City':c.city,'Orders':c.orders,'Amount (PTD)':c.amount.toFixed(2)
   }));
+  const soData=r.soWise.map((s,i)=>({
+    '#':i+1,'Sales Officer':s.name,'Orders':s.orders,'Amount (PTD)':s.amount.toFixed(2)
+  }));
 
   const wb=XLSX.utils.book_new();
   const wsSummary=XLSX.utils.json_to_sheet(summaryData);
@@ -1615,6 +1643,10 @@ function exportReportsExcel(){
   const wsCustomers=XLSX.utils.json_to_sheet(customerData.length?customerData:[{'#':'','Customer':'No data for this period','City':'','Orders':'','Amount (PTD)':''}]);
   wsCustomers['!cols']=[{wch:5},{wch:32},{wch:18},{wch:10},{wch:16}];
   XLSX.utils.book_append_sheet(wb,wsCustomers,'Top Customers');
+
+  const wsSO=XLSX.utils.json_to_sheet(soData.length?soData:[{'#':'','Sales Officer':'No data for this period','Orders':'','Amount (PTD)':''}]);
+  wsSO['!cols']=[{wch:5},{wch:28},{wch:10},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,wsSO,'Sales Officers');
 
   XLSX.writeFile(wb, `PIL_Reports_${dateStamp()}.xlsx`);
 }
