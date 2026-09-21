@@ -350,7 +350,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:16px">
             <div>Total (PTD): <strong id="order-total" style="font-size:16px">₹0.00</strong></div>
-            <button class="btn btn-primary" onclick="submitOrder()"><i class="ti ti-send"></i> Submit order</button>
+            <button class="btn btn-primary" id="submit-order-btn" onclick="submitOrder()"><i class="ti ti-send"></i> Submit order</button>
           </div>
         </div>
       </div>
@@ -1257,19 +1257,17 @@ function removeCartItem(code){
 async function decrementStockForOrder(cf,items){
   if(!cf) return; // unknown C&F - nothing safe to decrement
   const {db,ref,runTransaction}=fb();
-  for(const it of items){
-    try{
-      await runTransaction(ref(db,`stock/${cf}/${it.code}`),(current)=>{
-        const cur=(typeof current==='number')?current:0;
-        return Math.max(0,cur-it.qty);
-      });
-    }catch(e){
-      console.error('Stock decrement failed for',it.code,e);
-    }
-  }
+  await Promise.all(items.map(it=>
+    runTransaction(ref(db,`stock/${cf}/${it.code}`),(current)=>{
+      const cur=(typeof current==='number')?current:0;
+      return Math.max(0,cur-it.qty);
+    }).catch(e=>console.error('Stock decrement failed for',it.code,e))
+  ));
 }
 
+let _orderSubmitInFlight=false;
 async function submitOrder(){
+  if(_orderSubmitInFlight) return; // a submit is already running - ignore extra taps
   if(!fb()){alert('Firebase not ready. Please refresh.');return;}
   const items=[];
   Object.keys(CART).forEach(code=>{
@@ -1288,6 +1286,12 @@ async function submitOrder(){
     items.push(item);
   });
   if(!items.length){alert('Please enter quantity for at least one product.');return;}
+
+  _orderSubmitInFlight=true;
+  const btn=document.getElementById('submit-order-btn');
+  const btnOriginalHtml=btn?btn.innerHTML:null;
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Submitting...'; }
+
   const total=items.reduce((s,i)=>s+i.amount,0);
   const now=new Date();
   const orderId='ORD-'+Date.now();
@@ -1312,6 +1316,9 @@ async function submitOrder(){
     );
   }catch(e){
     alert('Error submitting order: '+e.message+'\nCheck your Firebase config.');
+  }finally{
+    _orderSubmitInFlight=false;
+    if(btn){ btn.disabled=false; btn.innerHTML=btnOriginalHtml; }
   }
 }
 
