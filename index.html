@@ -408,6 +408,7 @@
       <button class="theme-toggle notif-toggle" onclick="toggleAdminNotifications()" title="Order notifications: OFF (tap to turn on)"><i class="ti ti-bell-off"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
       <button class="btn btn-sm" onclick="requireOwner(openMasterUpload)"><i class="ti ti-upload"></i> Upload master data</button>
+      <button class="btn btn-sm" onclick="openImportOrder()"><i class="ti ti-file-import"></i> Import order from Excel</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -418,6 +419,7 @@
       <div class="nav-item" onclick="adminNav('products')" id="anav-products"><i class="ti ti-package"></i> Products</div>
       <div class="nav-item" onclick="adminNav('customers')" id="anav-customers"><i class="ti ti-users"></i> Customers</div>
       <div class="nav-item" onclick="adminNav('reports')" id="anav-reports"><i class="ti ti-chart-bar"></i> Reports</div>
+      <div class="nav-item" onclick="adminNav('trash')" id="anav-trash"><i class="ti ti-trash"></i> Recently Deleted</div>
     </div>
     <div class="content">
       <div id="ap-orders">
@@ -549,6 +551,18 @@
             </table>
         </div>
       </div>
+      <div id="ap-trash" style="display:none">
+        <div class="page-title">Recently Deleted</div>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px">
+          Deleted orders stay here for 30 days and can be restored. After that they're removed for good.
+        </p>
+        <div class="card" style="padding:0">
+          <table>
+              <thead><tr><th>Order ID</th><th>Deleted</th><th>Customer</th><th>Items</th><th style="text-align:right">Total</th><th></th></tr></thead>
+              <tbody id="trash-tbody"></tbody>
+            </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -616,6 +630,24 @@
     <div class="modal-actions">
       <button class="btn btn-sm" onclick="closeMasterUpload()">Cancel</button>
       <button class="btn btn-primary btn-sm" id="mu-confirm-btn" onclick="confirmMasterUpload()" disabled>Confirm &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="import-order-modal">
+  <div class="modal-box" style="width:560px">
+    <div class="modal-title">Import order from Excel</div>
+    <div style="font-size:12px;color:var(--color-text-secondary,#666);margin-bottom:10px">
+      Upload an order Excel in the same format this portal exports (Party Code, then an Item Code / Order Qty table).
+      Prices and scheme are recalculated from today's current product data - this creates the order as a brand-new
+      submission dated today, not a restoration of the original record. Nothing is saved until you review and confirm.
+    </div>
+    <input type="file" id="io-file" accept=".xlsx,.xls" onchange="handleImportOrderFile(event)" />
+    <div id="io-summary" style="margin-top:12px;font-size:13px;display:none;background:#f5f5f5;border-radius:8px;padding:10px 12px;max-height:280px;overflow:auto"></div>
+    <div class="modal-err" id="io-err"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeImportOrder()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="io-confirm-btn" onclick="confirmImportOrder()" disabled>Confirm &amp; create order</button>
     </div>
   </div>
 </div>
@@ -942,11 +974,12 @@ function custNav(p){
 }
 
 function adminNav(p){
-  ['orders','products','customers','reports'].forEach(x=>{
+  ['orders','products','customers','reports','trash'].forEach(x=>{
     document.getElementById('ap-'+x).style.display=x===p?'block':'none';
     document.getElementById('anav-'+x).classList.toggle('active',x===p);
   });
   if(p==='reports') renderAdminReports();
+  if(p==='trash') renderTrash();
 }
 
 // ===================== PRODUCTS =====================
@@ -1583,16 +1616,88 @@ async function deleteOrderItem(orderId, idx){
   if(cf) await _restoreStockForItem(cf,item);
 }
 
-// Removes the whole order and restores stock for every item still on it.
+// Soft-deletes the whole order: moves it to deletedOrders/ (recoverable
+// for 30 days via the "Recently Deleted" view) instead of permanently
+// erasing it, and restores stock for every item still on it.
 async function deleteEntireOrder(orderId){
-  const {db,ref,remove}=fb();
+  const {db,ref,remove,set}=fb();
   const o=allOrders[orderId];
   if(!o) return;
   const cf=CUSTOMER_CF[o.customer.code]||null;
   if(cf){
     await Promise.all((o.items||[]).map(it=>_restoreStockForItem(cf,it)));
   }
+  await set(ref(db,`deletedOrders/${orderId}`),{...o,deletedAt:Date.now()});
   await remove(ref(db,`orders/${orderId}`));
+}
+
+const TRASH_RETENTION_MS=30*24*60*60*1000; // 30 days
+
+async function renderTrash(){
+  const tbody=document.getElementById('trash-tbody');
+  tbody.innerHTML='<tr><td colspan="6" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading...</td></tr>';
+  const {db,ref,get,remove}=fb();
+  let data={};
+  try{
+    const snap=await get(ref(db,'deletedOrders'));
+    data=snap.val()||{};
+  }catch(e){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--color-text-danger);padding:24px">Could not load: '+e.message+'</td></tr>';
+    return;
+  }
+
+  // Quietly purge anything past the 30-day retention window
+  const now=Date.now();
+  const expiredIds=Object.keys(data).filter(id=>now-(data[id].deletedAt||0)>TRASH_RETENTION_MS);
+  if(expiredIds.length){
+    await Promise.all(expiredIds.map(id=>remove(ref(db,`deletedOrders/${id}`))));
+    expiredIds.forEach(id=>delete data[id]);
+  }
+
+  const rows=Object.values(data).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:32px">Nothing in trash.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML=rows.map(o=>{
+    const daysLeft=Math.max(0,Math.ceil((TRASH_RETENTION_MS-(now-(o.deletedAt||0)))/86400000));
+    return `
+    <tr>
+      <td style="font-family:var(--font-mono);font-size:12px">${o.id.replace('ORD-','')}</td>
+      <td style="font-size:12px;color:var(--color-text-secondary)">${new Date(o.deletedAt).toLocaleString('en-IN')}<br><span style="font-size:10px">${daysLeft}d left</span></td>
+      <td style="font-weight:600">${o.customer.name}</td>
+      <td>${(o.items||[]).length} items</td>
+      <td style="text-align:right;font-weight:600">₹${(o.total||0).toFixed(2)}</td>
+      <td><button class="btn btn-sm btn-primary" onclick="restoreDeletedOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Restore</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function restoreDeletedOrder(orderId){
+  const {db,ref,get,set,remove,runTransaction}=fb();
+  try{
+    const snap=await get(ref(db,`deletedOrders/${orderId}`));
+    const o=snap.val();
+    if(!o){ alert('This order is no longer in trash.'); renderTrash(); return; }
+    const {deletedAt,...order}=o;
+    await set(ref(db,`orders/${orderId}`),order);
+    await remove(ref(db,`deletedOrders/${orderId}`));
+    // Re-decrement stock, since restoring means these items are back on order
+    const cf=CUSTOMER_CF[order.customer.code]||null;
+    if(cf){
+      await Promise.all((order.items||[]).map(it=>
+        runTransaction(ref(db,`stock/${cf}/${it.code}`),(current)=>{
+          const cur=(typeof current==='number')?current:0;
+          return Math.max(0,cur-it.qty);
+        }).catch(e=>console.error('Stock re-decrement failed for',it.code,e))
+      ));
+    }
+    renderTrash();
+    _showInfoModal('Order restored ✅',`Order <b>${orderId}</b> has been restored and is back in All Orders.`);
+  }catch(e){
+    alert('Could not restore order: '+e.message);
+  }
 }
 
 async function _restoreStockForItem(cf,item){
@@ -2166,6 +2271,141 @@ function openMasterUpload(){
 }
 function closeMasterUpload(){
   document.getElementById('master-upload-modal').classList.remove('active');
+}
+
+// ===================== IMPORT ORDER FROM EXCEL (admin) =====================
+let _ioStaged=null;
+
+function openImportOrder(){
+  _ioStaged=null;
+  document.getElementById('io-file').value='';
+  document.getElementById('io-summary').style.display='none';
+  document.getElementById('io-summary').innerHTML='';
+  document.getElementById('io-err').style.display='none';
+  document.getElementById('io-confirm-btn').disabled=true;
+  document.getElementById('import-order-modal').classList.add('active');
+}
+function closeImportOrder(){
+  document.getElementById('import-order-modal').classList.remove('active');
+}
+
+function _ioNorm(s){
+  return String(s==null?'':s).trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+function _ioFindCol(headerRow,aliases){
+  const normed=headerRow.map(_ioNorm);
+  for(const a of aliases){
+    const idx=normed.indexOf(_ioNorm(a));
+    if(idx!==-1) return idx;
+  }
+  return -1;
+}
+
+function handleImportOrderFile(evt){
+  const file=evt.target.files[0];
+  const errEl=document.getElementById('io-err');
+  const sumEl=document.getElementById('io-summary');
+  errEl.style.display='none';
+  document.getElementById('io-confirm-btn').disabled=true;
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+
+      // Find "Party Code" label anywhere in the top rows - value is the
+      // adjacent cell on the same row.
+      let partyCode=null;
+      for(let r=0;r<Math.min(rows.length,12);r++){
+        for(let c=0;c<rows[r].length;c++){
+          if(_ioNorm(rows[r][c]).includes('partycode')||_ioNorm(rows[r][c]).includes('customercode')){
+            partyCode=String(rows[r][c+1]||'').trim();
+          }
+        }
+      }
+      if(!partyCode) throw new Error('Could not find "Party Code" in this file.');
+      const customer=CUSTOMERS.find(c=>c.code===partyCode);
+      if(!customer) throw new Error(`Party Code "${partyCode}" doesn't match any known customer.`);
+
+      // Find the item table header row (contains "Item Code")
+      let headerRowIdx=-1;
+      for(let r=0;r<rows.length;r++){
+        if(rows[r].some(cell=>_ioNorm(cell)==='itemcode')){ headerRowIdx=r; break; }
+      }
+      if(headerRowIdx===-1) throw new Error('Could not find the item table (no "Item Code" header row found).');
+
+      const header=rows[headerRowIdx];
+      const codeCol=_ioFindCol(header,['Item Code','SAP Code','Product Code','Code']);
+      const qtyCol=_ioFindCol(header,['Order Qty','Qty','Quantity']);
+      if(codeCol===-1||qtyCol===-1) throw new Error('Could not find "Item Code" / "Order Qty" columns in the item table.');
+
+      const matched=[],unmatched=[];
+      for(let r=headerRowIdx+1;r<rows.length;r++){
+        const row=rows[r];
+        const code=String(row[codeCol]||'').trim();
+        if(!code||_ioNorm(code)==='total') continue;
+        const qty=parseInt(row[qtyCol])||0;
+        if(qty<=0) continue;
+        const p=PRODUCTS.find(x=>x.code===code);
+        if(!p){ unmatched.push(code); continue; }
+        const scheme=p.scheme||0;
+        matched.push({code:p.code,name:p.name,qty,ptd:p.ptd,uom:p.uom,scheme,mrp:p.mrp,shipper:p.shipper,amount:qty*p.ptd*(1-scheme/100)});
+      }
+      if(!matched.length) throw new Error('No valid item rows found (with a recognised product code and quantity > 0).');
+
+      const total=matched.reduce((s,i)=>s+i.amount,0);
+      _ioStaged={customer,items:matched,total};
+
+      sumEl.style.display='block';
+      sumEl.innerHTML=`
+        <div><strong>Customer:</strong> ${customer.name} (${customer.code}), ${customer.city}</div>
+        <div style="margin-top:6px"><strong>Items matched:</strong> ${matched.length}</div>
+        ${unmatched.length?`<div style="color:#B45309;margin-top:4px"><strong>Skipped (code not found):</strong> ${unmatched.join(', ')}</div>`:''}
+        <div style="margin-top:6px"><strong>Total (recalculated at today's prices):</strong> ₹${total.toFixed(2)}</div>
+        <div style="margin-top:10px;max-height:150px;overflow:auto;border-top:1px solid #ddd;padding-top:6px">
+          ${matched.map(it=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0">
+            <span>${it.name} ×${it.qty}</span><span>₹${it.amount.toFixed(2)}</span></div>`).join('')}
+        </div>`;
+      document.getElementById('io-confirm-btn').disabled=false;
+    }catch(err){
+      errEl.textContent=err.message;
+      errEl.style.display='block';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function confirmImportOrder(){
+  if(!_ioStaged) return;
+  const btn=document.getElementById('io-confirm-btn');
+  btn.disabled=true;
+  btn.textContent='Creating...';
+  const {customer,items,total}=_ioStaged;
+  const now=new Date();
+  const orderId='ORD-'+Date.now();
+  const order={
+    id:orderId,
+    customer:{code:customer.code,name:customer.name,city:customer.city,state:customer.state,phone:customer.phone},
+    items,total,
+    date:now.toLocaleDateString('en-IN'),
+    time:now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
+    timestamp:now.getTime(),
+    status:'New'
+  };
+  try{
+    await pushOrder(order);
+    const cf=CUSTOMER_CF[customer.code]||null;
+    if(cf) await decrementStockForOrder(cf,items);
+    closeImportOrder();
+    _showInfoModal('Order created ✅',`Order <b>${orderId}</b> for <b>${customer.name}</b> (₹${total.toFixed(2)}) has been created.`);
+  }catch(e){
+    document.getElementById('io-err').textContent='Could not create order: '+e.message;
+    document.getElementById('io-err').style.display='block';
+    btn.disabled=false;
+    btn.textContent='Confirm & create order';
+  }
 }
 
 function handleMasterFile(evt){
