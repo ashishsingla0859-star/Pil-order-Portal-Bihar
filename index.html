@@ -439,10 +439,15 @@
             </button>
           </div>
         </div>
+        <div id="bulk-delete-bar" style="display:none;align-items:center;gap:10px;padding:8px 14px;margin-bottom:10px;background:var(--color-background-danger);border:1px solid var(--color-border-danger);border-radius:var(--border-radius-md);font-size:13px">
+          <span id="bulk-selected-count">0 selected</span>
+          <button class="btn btn-danger btn-sm" onclick="confirmBulkDeleteOrders()"><i class="ti ti-trash"></i> Delete selected</button>
+          <button class="btn btn-sm" onclick="clearOrderSelection()">Clear selection</button>
+        </div>
         <div class="card" style="padding:0">
           <table>
-              <thead><tr><th>Order ID</th><th>Date &amp; Time</th><th>Customer</th><th>City</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th><th>Update</th><th>Export</th><th>Delete</th></tr></thead>
-              <tbody id="admin-order-tbody"><tr><td colspan="10" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading orders...</td></tr></tbody>
+              <thead><tr><th style="width:32px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" /></th><th>Order ID</th><th>Date &amp; Time</th><th>Customer</th><th>City</th><th>Items</th><th style="text-align:right">Total (PTD)</th><th>Status</th><th>Update</th><th>Export</th><th>Delete</th></tr></thead>
+              <tbody id="admin-order-tbody"><tr><td colspan="11" class="loading-overlay"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Loading orders...</td></tr></tbody>
             </table>
         </div>
       </div>
@@ -912,6 +917,7 @@ function logout(){
   currentRole=null;currentCustomer=null;
   _knownOrderIds=null;
   CART={};
+  SELECTED_ORDER_IDS.clear();
   document.getElementById('pw-input').value='';
   showScreen('s-login');
 }
@@ -1355,11 +1361,13 @@ function renderAdminOrders(){
 
   const tbody=document.getElementById('admin-order-tbody');
   if(!filtered.length){
-    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px">No orders yet.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--color-text-secondary);padding:32px">No orders yet.</td></tr>';
+    updateBulkDeleteBar();
     return;
   }
   tbody.innerHTML=filtered.map(o=>`
     <tr>
+      <td><input type="checkbox" class="order-select-checkbox" data-id="${o.id}" onchange="onOrderCheckboxChange()" ${SELECTED_ORDER_IDS.has(o.id)?'checked':''} /></td>
       <td style="font-family:var(--font-mono);font-size:12px">${o.id.replace('ORD-','')}</td>
       <td style="white-space:nowrap">${o.date}<br><span style="color:var(--color-text-secondary);font-size:11px">${o.time||''}</span></td>
       <td style="font-weight:600;max-width:160px">${o.customer.name}</td>
@@ -1379,6 +1387,73 @@ function renderAdminOrders(){
       <td><button class="btn btn-sm" onclick="exportSingleOrder('${o.id}')" title="Export this order"><i class="ti ti-file-spreadsheet"></i></button></td>
       <td><button class="btn btn-sm btn-danger" onclick="confirmDeleteEntireOrder('${o.id}')" title="Delete this order">🗑️</button></td>
     </tr>`).join('');
+  updateBulkDeleteBar();
+}
+
+// Persistent selection set (survives re-renders from the live orders
+// listener) - same pattern as CART, so ticking boxes doesn't get wiped
+// out by a live update arriving mid-selection.
+let SELECTED_ORDER_IDS=new Set();
+
+function onOrderCheckboxChange(){
+  document.querySelectorAll('.order-select-checkbox').forEach(cb=>{
+    const id=cb.dataset.id;
+    if(cb.checked) SELECTED_ORDER_IDS.add(id);
+    else SELECTED_ORDER_IDS.delete(id);
+  });
+  updateBulkDeleteBar();
+}
+
+function toggleSelectAllOrders(headerCb){
+  document.querySelectorAll('.order-select-checkbox').forEach(cb=>{
+    cb.checked=headerCb.checked;
+    const id=cb.dataset.id;
+    if(headerCb.checked) SELECTED_ORDER_IDS.add(id);
+    else SELECTED_ORDER_IDS.delete(id);
+  });
+  updateBulkDeleteBar();
+}
+
+function clearOrderSelection(){
+  SELECTED_ORDER_IDS.clear();
+  document.querySelectorAll('.order-select-checkbox').forEach(cb=>cb.checked=false);
+  const selectAll=document.getElementById('select-all-orders');
+  if(selectAll) selectAll.checked=false;
+  updateBulkDeleteBar();
+}
+
+function updateBulkDeleteBar(){
+  const bar=document.getElementById('bulk-delete-bar');
+  const countEl=document.getElementById('bulk-selected-count');
+  if(!bar||!countEl) return;
+  const n=SELECTED_ORDER_IDS.size;
+  if(n>0){
+    bar.style.display='flex';
+    countEl.textContent=`${n} order${n===1?'':'s'} selected`;
+  } else {
+    bar.style.display='none';
+  }
+}
+
+function confirmBulkDeleteOrders(){
+  if(currentRole!=='admin') return;
+  const ids=Array.from(SELECTED_ORDER_IDS).filter(id=>allOrders[id]);
+  if(!ids.length) return;
+  const totalAmount=ids.reduce((s,id)=>s+(allOrders[id].total||0),0);
+  _showConfirmModal(
+    `Delete ${ids.length} selected order${ids.length===1?'':'s'}?`,
+    `This permanently removes ${ids.length} order${ids.length===1?'':'s'} (total \u20b9${totalAmount.toFixed(2)}). Stock will be restored for each. This cannot be undone.`,
+    async ()=>{
+      const bar=document.getElementById('bulk-delete-bar');
+      if(bar) bar.innerHTML='<span><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Deleting...</span>';
+      try{
+        await Promise.all(ids.map(id=>deleteEntireOrder(id)));
+      }catch(e){
+        alert('Some orders could not be deleted: '+e.message);
+      }
+      SELECTED_ORDER_IDS.clear();
+    }
+  );
 }
 
 // ===================== ADMIN: ORDER DETAIL / ITEM DELETE (admin-only) =====================
@@ -1515,7 +1590,7 @@ async function deleteEntireOrder(orderId){
   if(!o) return;
   const cf=CUSTOMER_CF[o.customer.code]||null;
   if(cf){
-    for(const it of (o.items||[])){ await _restoreStockForItem(cf,it); }
+    await Promise.all((o.items||[]).map(it=>_restoreStockForItem(cf,it)));
   }
   await remove(ref(db,`orders/${orderId}`));
 }
