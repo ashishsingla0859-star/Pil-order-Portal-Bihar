@@ -1,0 +1,58 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "orders": {
+      ".read": true,
+      ".write": true
+    },
+
+    "deletedOrders": {
+      ".read": true,
+      ".write": true
+    },
+
+    "stock": {
+      ".read": true,
+      ".write": true
+    },
+    "stockBlocked": {
+      ".read": true,
+      ".write": true
+    },
+    "stockBatches": {
+      ".read": true,
+      ".write": true
+    },
+    "stockMeta": {
+      ".read": true,
+      ".write": true
+    },
+
+    "customerPasswords": {
+      ".read": true,
+      ".write": true
+    },
+
+    "productOverrides": {
+      ".read": true,
+      ".write": "auth != null && auth.uid === 'FOEZeqkKP6SkBg8sNIqy8xA8hH12'"
+    },
+
+    "productAdditions": {
+      ".read": true,
+      ".write": "auth != null && auth.uid === 'FOEZeqkKP6SkBg8sNIqy8xA8hH12'"
+    },
+
+    "customerAdditions": {
+      ".read": true,
+      ".write": "auth != null && auth.uid === 'FOEZeqkKP6SkBg8sNIqy8xA8hH12'"
+    },
+
+    "customerContacts": {
+      ".read": true,
+      ".write": "auth != null && auth.uid === 'FOEZeqkKP6SkBg8sNIqy8xA8hH12'"
+    }
+  }
+}
