@@ -1534,6 +1534,33 @@ function showOrderDetail(orderId){
   _renderOrderDetailModal(orderId);
 }
 
+// ===================== WHATSAPP ORDER CONFIRMATION (admin-only) =====================
+// TODO: replace with the manager's actual WhatsApp number (country code +
+// number, digits only, e.g. India: 91XXXXXXXXXX).
+const MANAGER_WHATSAPP_NUMBER='91XXXXXXXXXX';
+
+function _buildWhatsAppOrderMessage(o){
+  const itemLines=(o.items||[]).slice(0,10).map(it=>`- ${it.name} x${it.qty}`).join('\n');
+  const more=(o.items||[]).length>10?`\n...and ${o.items.length-10} more item(s)`:'';
+  return `*Order ${o.id}*\n${o.date} ${o.time||''}\nCustomer: ${o.customer.name}, ${o.customer.city||''}\nStatus: ${o.status}\n\n${itemLines}${more}\n\n*Total: \u20b9${o.total.toFixed(2)}*`;
+}
+
+function sendOrderWhatsApp(orderId,target){
+  const o=allOrders[orderId];
+  if(!o) return;
+  let phone=null;
+  if(target==='customer'){
+    phone=(o.customer&&o.customer.phone||'').replace(/\D/g,'');
+    if(!phone){ alert('This customer has no phone number on file. Add it in Admin \u2192 Customers, then try again.'); return; }
+    if(phone.length===10) phone='91'+phone; // assume Indian 10-digit number, add country code
+  } else {
+    phone=MANAGER_WHATSAPP_NUMBER.replace(/\D/g,'');
+    if(!phone||phone.includes('X')){ alert('Manager WhatsApp number is not set up yet. Ask Claude to add it in the code.'); return; }
+  }
+  const text=encodeURIComponent(_buildWhatsAppOrderMessage(o));
+  window.open(`https://wa.me/${phone}?text=${text}`,'_blank');
+}
+
 function _renderOrderDetailModal(orderId){
   let overlay=document.getElementById('order-detail-overlay');
   if(overlay) overlay.remove();
@@ -1571,7 +1598,9 @@ function _renderOrderDetailModal(orderId){
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-border-secondary);padding-top:12px;margin-top:10px;flex-wrap:wrap;gap:10px">
         <div style="font-family:var(--font-display);font-size:17px;font-weight:600">Total: \u20b9${o.total.toFixed(2)}</div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="background:#25D366;color:#fff;border-color:#25D366" onclick="sendOrderWhatsApp('${orderId}','customer')"><i class="ti ti-brand-whatsapp"></i> WhatsApp customer</button>
+          <button class="btn btn-sm" style="background:#25D366;color:#fff;border-color:#25D366" onclick="sendOrderWhatsApp('${orderId}','manager')"><i class="ti ti-brand-whatsapp"></i> WhatsApp manager</button>
           <button class="btn btn-danger btn-sm" onclick="confirmDeleteEntireOrder('${orderId}')"><i class="ti ti-trash"></i> Delete Order</button>
           <button class="btn btn-sm" onclick="document.getElementById('order-detail-overlay').remove()">Close</button>
         </div>
