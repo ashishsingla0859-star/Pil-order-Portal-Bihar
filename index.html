@@ -1550,7 +1550,12 @@ function sendOrderWhatsApp(orderId,target){
   if(!o) return;
   let phone=null;
   if(target==='customer'){
-    phone=(o.customer&&o.customer.phone||'').replace(/\D/g,'');
+    // Use the customer's CURRENT phone from the live master list first - the
+    // phone copied into the order at submit time can be empty if the number
+    // was only added to the customer record afterwards.
+    const liveCust=CUSTOMERS.find(c=>c.code===(o.customer&&o.customer.code));
+    const rawPhone=(liveCust&&liveCust.phone)||(o.customer&&o.customer.phone)||'';
+    phone=String(rawPhone).replace(/\D/g,'');
     if(!phone){ alert('This customer has no phone number on file. Add it in Admin \u2192 Customers, then try again.'); return; }
     if(phone.length===10) phone='91'+phone; // assume Indian 10-digit number, add country code
   } else {
