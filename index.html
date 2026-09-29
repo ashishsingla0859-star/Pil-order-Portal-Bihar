@@ -1540,9 +1540,25 @@ function showOrderDetail(orderId){
 const MANAGER_WHATSAPP_NUMBER='91XXXXXXXXXX';
 
 function _buildWhatsAppOrderMessage(o){
-  const itemLines=(o.items||[]).slice(0,10).map(it=>`- ${it.name} x${it.qty}`).join('\n');
-  const more=(o.items||[]).length>10?`\n...and ${o.items.length-10} more item(s)`:'';
-  return `*Order ${o.id}*\n${o.date} ${o.time||''}\nCustomer: ${o.customer.name}, ${o.customer.city||''}\nStatus: ${o.status}\n\n${itemLines}${more}\n\n*Total: \u20b9${o.total.toFixed(2)}*`;
+  const itemLines=(o.items||[]).map(it=>`- ${it.name} x${it.qty}`).join('\n');
+  return `*Order ${o.id}*\n${o.date} ${o.time||''}\nCustomer: ${o.customer.name}, ${o.customer.city||''}\nStatus: ${o.status}\n\n${itemLines}\n\n*Total: \u20b9${o.total.toFixed(2)}*`;
+}
+
+// Generic share: opens the phone's own share sheet, so the admin can pick
+// ANY app (WhatsApp, SMS, Gmail, ...) and ANY contact - no phone number
+// needs to be stored in the master sheet for this to work.
+async function shareOrder(orderId){
+  const o=allOrders[orderId];
+  if(!o) return;
+  const text=_buildWhatsAppOrderMessage(o).replace(/\*/g,''); // plain text, no WhatsApp bold markers
+  if(navigator.share){
+    try{ await navigator.share({title:`Order ${o.id}`,text}); }
+    catch(e){ /* user closed the share sheet - nothing to do */ }
+    return;
+  }
+  // Browsers without a native share sheet (some desktops): open WhatsApp with
+  // the message ready, and let the admin pick the contact inside WhatsApp.
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,'_blank');
 }
 
 function sendOrderWhatsApp(orderId,target){
@@ -1604,6 +1620,7 @@ function _renderOrderDetailModal(orderId){
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-border-secondary);padding-top:12px;margin-top:10px;flex-wrap:wrap;gap:10px">
         <div style="font-family:var(--font-display);font-size:17px;font-weight:600">Total: \u20b9${o.total.toFixed(2)}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="shareOrder('${orderId}')"><i class="ti ti-share"></i> Share</button>
           <button class="btn btn-sm" style="background:#25D366;color:#fff;border-color:#25D366" onclick="sendOrderWhatsApp('${orderId}','customer')"><i class="ti ti-brand-whatsapp"></i> WhatsApp customer</button>
           <button class="btn btn-sm" style="background:#25D366;color:#fff;border-color:#25D366" onclick="sendOrderWhatsApp('${orderId}','manager')"><i class="ti ti-brand-whatsapp"></i> WhatsApp manager</button>
           <button class="btn btn-danger btn-sm" onclick="confirmDeleteEntireOrder('${orderId}')"><i class="ti ti-trash"></i> Delete Order</button>
