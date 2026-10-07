@@ -55,14 +55,21 @@
   const db  = getDatabase(app);
   const auth = getAuth(app);
 
-  // Admin password (shared login gate for managers — NOT the same as the
-  // owner-only Firebase Auth login below). CHANGE THIS before you go live.
-  const ADMIN_PASSWORD = "generic@123";
+  // Per-state admin passwords (shared login gate for each state's
+  // managers — NOT the same as the owner-only Firebase Auth login below).
+  // Each state's admin can ONLY log in and see/manage that state's own
+  // data - entering one state's password never reveals another state's.
+  // To add a new state later: add one more line here, no other changes
+  // needed anywhere else in the app.
+  const STATE_ADMIN_PASSWORDS = {
+    'BIHAR': 'generic@123',
+    'GUJARAT': 'CHANGE_ME_GUJARAT_PASSWORD'
+  };
 
   // ---- expose to global scope ----
   window._fb = { db, ref, set, get, onValue, update, runTransaction, remove };
   window._fbAuth = { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut };
-  window.ADMIN_PASSWORD = ADMIN_PASSWORD;
+  window.STATE_ADMIN_PASSWORDS = STATE_ADMIN_PASSWORDS;
   window.dispatchEvent(new Event("firebase-ready"));
 </script>
 
@@ -405,6 +412,7 @@
     <div style="display:flex;align-items:center;gap:10px">
       <span class="realtime-badge">Live</span>
       <span class="badge badge-admin">Administrator</span>
+      <span class="badge" id="admin-state-badge" style="background:var(--amber-tint);color:#8A5417"></span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
       <button class="theme-toggle notif-toggle" onclick="toggleAdminNotifications()" title="Order notifications: OFF (tap to turn on)"><i class="ti ti-bell-off"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
@@ -897,11 +905,29 @@ function setRole(r){
   document.getElementById('cust-select-wrap').style.display=r==='customer'?'flex':'none';
 }
 
-function enterAdminSession(){
+let currentAdminState=null; // e.g. 'BIHAR' - which state this admin session is scoped to
+
+// Normalizes a state string for comparison (trims, uppercases) so minor
+// spelling/casing differences in uploaded data ("Bihar" vs "BIHAR") still
+// match correctly.
+function _normState(s){ return String(s||'').trim().toUpperCase(); }
+
+// True if a record (order, customer - anything with a .state field, or a
+// nested .customer.state) belongs to the currently logged-in admin's state.
+function _belongsToAdminState(record){
+  if(!currentAdminState) return true; // no state scoping active (shouldn't happen for admin, but fail open rather than hide everything)
+  const state=record&&(record.state||(record.customer&&record.customer.state));
+  return _normState(state)===_normState(currentAdminState);
+}
+
+function enterAdminSession(state){
   currentRole='admin';
+  currentAdminState=state;
   showScreen('s-admin');
   loadThoughtOfTheDay();
   showGreetingToast('Admin');
+  const stateBadge=document.getElementById('admin-state-badge');
+  if(stateBadge) stateBadge.textContent=currentAdminState?_titleCaseState(currentAdminState):'';
   renderAdminCustomers();
   renderAdminProducts();
   _updateNotifIcon();
@@ -910,6 +936,10 @@ function enterAdminSession(){
     _checkForNewOrdersAndNotify(data);
     if(document.getElementById('ap-reports').style.display!=='none') renderAdminReports();
   });
+}
+
+function _titleCaseState(s){
+  return String(s||'').trim().toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 }
 
 function enterCustomerSession(customer){
@@ -944,7 +974,7 @@ function tryRestoreSession(){
   }catch(e){}
   if(!session) return false;
   if(session.role==='admin'){
-    enterAdminSession();
+    enterAdminSession(session.state||null);
     return true;
   }
   if(session.role==='customer'){
@@ -961,9 +991,10 @@ async function doLogin(){
   err.style.display='none';
 
   if(loginRole==='admin'){
-    if(pw!==window.ADMIN_PASSWORD){err.textContent='Incorrect admin password.';err.style.display='block';return;}
-    saveSession({role:'admin'});
-    enterAdminSession();
+    const matchedState=Object.keys(window.STATE_ADMIN_PASSWORDS).find(s=>pw===window.STATE_ADMIN_PASSWORDS[s]);
+    if(!matchedState){err.textContent='Incorrect admin password.';err.style.display='block';return;}
+    saveSession({role:'admin',state:matchedState});
+    enterAdminSession(matchedState);
   } else {
     const sel=document.getElementById('cust-select');
     const candidate=CUSTOMERS.find(c=>c.code===sel.value);
@@ -984,7 +1015,7 @@ async function doLogin(){
 
 function logout(){
   unsubscribeOrders();
-  currentRole=null;currentCustomer=null;
+  currentRole=null;currentCustomer=null;currentAdminState=null;
   _knownOrderIds=null;
   CART={};
   SELECTED_ORDER_IDS.clear();
@@ -1422,7 +1453,7 @@ function renderHistory(){
 
 // ===================== ADMIN =====================
 function renderAdminOrders(){
-  const orders=Object.values(allOrders).sort((a,b)=>b.timestamp-a.timestamp);
+  const orders=Object.values(allOrders).filter(_belongsToAdminState).sort((a,b)=>b.timestamp-a.timestamp);
   const cf=document.getElementById('admin-cust-filter').value;
   const sf=document.getElementById('admin-status-filter').value;
   const filtered=orders.filter(o=>(!cf||o.customer.code===cf)&&(!sf||o.status===sf));
@@ -1744,7 +1775,7 @@ async function renderTrash(){
     expiredIds.forEach(id=>delete data[id]);
   }
 
-  const rows=Object.values(data).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
+  const rows=Object.values(data).filter(_belongsToAdminState).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
   if(!rows.length){
     tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:32px">Nothing in trash.</td></tr>';
     return;
@@ -1828,10 +1859,11 @@ function renderAdminProducts(){
 }
 
 function renderAdminCustomers(){
+  const stateCustomers=CUSTOMERS.filter(_belongsToAdminState);
   const acf=document.getElementById('admin-cust-filter');
-  acf.innerHTML='<option value="">All customers</option>'+CUSTOMERS.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
-  document.getElementById('cust-count-label').textContent=`(${CUSTOMERS.length} stockists)`;
-  document.getElementById('admin-cust-tbody').innerHTML=CUSTOMERS.map(c=>`
+  acf.innerHTML='<option value="">All customers</option>'+stateCustomers.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  document.getElementById('cust-count-label').textContent=`(${stateCustomers.length} stockists)`;
+  document.getElementById('admin-cust-tbody').innerHTML=stateCustomers.map(c=>`
     <tr>
       <td style="font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary)">${c.code}</td>
       <td style="font-weight:600">${c.name}</td>
@@ -1875,6 +1907,7 @@ function _computeReportData(){
   const {from,to,label}=_reportPeriodRange(periodSel);
 
   const orders=Object.values(allOrders||{}).filter(o=>{
+    if(!_belongsToAdminState(o)) return false;
     if(statusFilter!=='all'&&o.status!==statusFilter) return false;
     const ts=typeof o.timestamp==='number'?o.timestamp:0;
     return ts>=from&&ts<to;
@@ -3192,6 +3225,7 @@ function exportOrders(){
   const cf=document.getElementById('admin-cust-filter').value;
   const sf=document.getElementById('admin-status-filter').value;
   const orders=Object.values(allOrders)
+    .filter(_belongsToAdminState)
     .sort((a,b)=>b.timestamp-a.timestamp)
     .filter(o=>(!cf||o.customer.code===cf)&&(!sf||o.status===sf));
 
@@ -3274,7 +3308,7 @@ function exportProducts(){
 
 // Admin: Export customers
 function exportCustomers(){
-  const data=CUSTOMERS.map(c=>({
+  const data=CUSTOMERS.filter(_belongsToAdminState).map(c=>({
     'Customer Code': c.code,
     'Name': c.name,
     'City': c.city,
@@ -3435,7 +3469,7 @@ function _checkForNewOrdersAndNotify(data){
 
   newIds.forEach(id=>{
     const o=data[id];
-    if(!o) return;
+    if(!o||!_belongsToAdminState(o)) return;
     try{
       const n=new Notification('New order received',{
         body:`${(o.customer&&o.customer.name)||'Customer'} (${(o.customer&&o.customer.city)||''}) \u2014 ${(o.items||[]).length} item(s), \u20b9${(o.total||0).toFixed(2)}`,
