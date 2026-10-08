@@ -63,7 +63,7 @@
   // needed anywhere else in the app.
   const STATE_ADMIN_PASSWORDS = {
     'BIHAR': 'generic@123',
-    'GUJARAT': 'CHANGE_ME_GUJARAT_PASSWORD'
+    'GUJARAT': 'gujrat@123'
   };
 
   // ---- expose to global scope ----
@@ -288,7 +288,9 @@
       </div>
       <div id="login-err" class="err" style="display:none"></div>
       <div id="cust-select-wrap" class="field">
-        <label>Select your account</label>
+        <label>Select your state</label>
+        <select id="login-state-select" onchange="onLoginStateChange()"></select>
+        <label style="margin-top:10px">Select your account</label>
         <select id="cust-select"></select>
       </div>
       <div class="field">
@@ -903,6 +905,40 @@ function setRole(r){
     t.classList.toggle('active',(r==='customer'&&i===0)||(r==='admin'&&i===1));
   });
   document.getElementById('cust-select-wrap').style.display=r==='customer'?'flex':'none';
+}
+
+// ---- Customer login: state-wise account list ----
+// The state list comes from STATE_ADMIN_PASSWORDS, so adding a new state
+// there automatically adds it here as well - nothing else to change.
+function _loginStateList(){
+  return Object.keys(window.STATE_ADMIN_PASSWORDS||{});
+}
+
+function populateCustomerSelect(){
+  const stateSel=document.getElementById('login-state-select');
+  const sel=document.getElementById('cust-select');
+  if(!stateSel||!sel) return;
+
+  // Build the state dropdown once (keeping whatever was chosen before)
+  if(!stateSel.options.length){
+    const states=_loginStateList();
+    let saved=null;
+    try{ saved=localStorage.getItem('pil-login-state'); }catch(e){}
+    stateSel.innerHTML=states.map(s=>`<option value="${s}">${_titleCaseState(s)}</option>`).join('');
+    if(saved&&states.includes(saved)) stateSel.value=saved;
+  }
+
+  const chosen=stateSel.value;
+  const list=CUSTOMERS.filter(c=>_normState(c.state)===_normState(chosen));
+  sel.innerHTML=list.length
+    ? list.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('')
+    : '<option value="">No customers found for this state</option>';
+}
+
+function onLoginStateChange(){
+  const stateSel=document.getElementById('login-state-select');
+  try{ localStorage.setItem('pil-login-state',stateSel.value); }catch(e){}
+  populateCustomerSelect();
 }
 
 let currentAdminState=null; // e.g. 'BIHAR' - which state this admin session is scoped to
@@ -2314,8 +2350,7 @@ async function saveAddCustomer(){
     CUSTOMERS.push(cust);
     _sortMasterLists();
     renderAdminCustomers();
-    const sel=document.getElementById('cust-select');
-    if(sel) sel.innerHTML=CUSTOMERS.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('');
+    populateCustomerSelect();
     closeAddCustomer();
   }catch(e){
     errEl.textContent='Could not save. Check your connection and try again.';errEl.style.display='block';
@@ -2839,8 +2874,7 @@ async function confirmMasterUpload(){
     renderAdminProducts();
     renderAdminCustomers();
     renderProducts();
-    const sel=document.getElementById('cust-select');
-    if(sel) sel.innerHTML=CUSTOMERS.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('');
+    populateCustomerSelect();
     document.getElementById('prod-count-label').textContent=`(${PRODUCTS.length} products)`;
     closeMasterUpload();
     alert('Master data uploaded successfully.');
@@ -3380,8 +3414,7 @@ function _sortMasterLists(){
 
 (function init(){
   _sortMasterLists();
-  const sel=document.getElementById('cust-select');
-  sel.innerHTML=CUSTOMERS.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('');
+  populateCustomerSelect();
   buildCatFilter();
   document.getElementById('prod-count-label').textContent=`(${PRODUCTS.length} products)`;
 
@@ -3399,7 +3432,7 @@ function _sortMasterLists(){
       renderAdminCustomers();
       renderAdminProducts();
       renderProducts();
-      sel.innerHTML=CUSTOMERS.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('');
+      populateCustomerSelect();
       document.getElementById('prod-count-label').textContent=`(${PRODUCTS.length} products)`;
       if(currentRole===null) tryRestoreSession();
     });
