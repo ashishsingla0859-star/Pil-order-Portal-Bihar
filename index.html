@@ -66,10 +66,20 @@
     'GUJARAT': 'gujrat@123'
   };
 
+  // Default CUSTOMER login password for each state (used until a customer
+  // changes their own). Different per state on purpose, so someone who only
+  // knows one state's default can't sign in to the other state's customers.
+  // When adding a new state, add a line here AND in STATE_ADMIN_PASSWORDS.
+  const STATE_DEFAULT_CUSTOMER_PASSWORDS = {
+    'BIHAR': '123456',
+    'GUJARAT': '414243'
+  };
+
   // ---- expose to global scope ----
   window._fb = { db, ref, set, get, onValue, update, runTransaction, remove };
   window._fbAuth = { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut };
   window.STATE_ADMIN_PASSWORDS = STATE_ADMIN_PASSWORDS;
+  window.STATE_DEFAULT_CUSTOMER_PASSWORDS = STATE_DEFAULT_CUSTOMER_PASSWORDS;
   window.dispatchEvent(new Event("firebase-ready"));
 </script>
 
@@ -300,9 +310,6 @@
       <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:4px">
         <i class="ti ti-arrow-right"></i> Sign in
       </button>
-      <p style="font-size:11px;color:var(--color-text-secondary);text-align:center;margin-top:-6px">
-        Default password: 123456 — you can change it after login
-      </p>
     </div>
     <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:flex;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
       <i class="ti ti-download"></i> Install app on this device
@@ -868,7 +875,13 @@ async function refreshStockAndProducts(){
 let fbListener=null;
 let allOrders={};
 
-const DEFAULT_CUSTOMER_PASSWORD="123456";
+// Default password depends on the customer's state (see
+// STATE_DEFAULT_CUSTOMER_PASSWORDS at the top of the file).
+function _defaultPasswordFor(customer){
+  const map=window.STATE_DEFAULT_CUSTOMER_PASSWORDS||{};
+  const key=Object.keys(map).find(k=>_normState(k)===_normState(customer&&customer.state));
+  return key?map[key]:'123456';
+}
 
 // ===================== FIREBASE HELPERS =====================
 function fb(){return window._fb;}
@@ -1039,7 +1052,7 @@ async function doLogin(){
     try{
       const {db,ref,get}=fb();
       const snap=await get(ref(db,`customerPasswords/${candidate.code}`));
-      const storedPw=snap.exists()?snap.val():DEFAULT_CUSTOMER_PASSWORD;
+      const storedPw=snap.exists()?snap.val():_defaultPasswordFor(candidate);
       if(pw!==storedPw){err.textContent='Incorrect password. Please contact your sales officer.';err.style.display='block';return;}
     }catch(e){
       err.textContent='Login error: '+e.message;err.style.display='block';return;
@@ -2947,7 +2960,7 @@ async function showPasswordList(){
     const snap=await get(ref(db,'customerPasswords'));
     const stored=snap.exists()?snap.val():{};
     document.getElementById('pwmgr-tbody').innerHTML=CUSTOMERS.map(c=>{
-      const pw=stored[c.code]||DEFAULT_CUSTOMER_PASSWORD+' (default, unchanged)';
+      const pw=stored[c.code]||_defaultPasswordFor(c)+' (default, unchanged)';
       return `<tr>
         <td style="padding:6px 8px;font-family:var(--font-mono);font-size:11px">${c.code}</td>
         <td style="padding:6px 8px">${c.name}</td>
@@ -2964,10 +2977,12 @@ async function showPasswordList(){
 }
 
 async function pwmgrReset(code){
-  if(!confirm('Reset this customer\'s password back to the default ('+DEFAULT_CUSTOMER_PASSWORD+')?')) return;
+  const cust=CUSTOMERS.find(x=>x.code===code);
+  const defaultPw=_defaultPasswordFor(cust);
+  if(!confirm('Reset this customer\'s password back to the default ('+defaultPw+')?')) return;
   const {db,ref,set}=window._fb;
   try{
-    await set(ref(db,`customerPasswords/${code}`),DEFAULT_CUSTOMER_PASSWORD);
+    await set(ref(db,`customerPasswords/${code}`),defaultPw);
     await showPasswordList();
   }catch(e){
     alert('Could not reset password: '+e.message);
@@ -2996,7 +3011,7 @@ async function doChangePassword(){
   try{
     const {db,ref,get,set}=fb();
     const snap=await get(ref(db,`customerPasswords/${currentCustomer.code}`));
-    const storedPw=snap.exists()?snap.val():DEFAULT_CUSTOMER_PASSWORD;
+    const storedPw=snap.exists()?snap.val():_defaultPasswordFor(currentCustomer);
     if(current!==storedPw){
       errEl.textContent='Current password is incorrect.';errEl.style.display='block';return;
     }
