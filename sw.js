@@ -1,10 +1,10 @@
-// Service worker for Pil Order Portal-Bihar
+// Service worker for Pil Order Portal
 // Strategy: network-first for the app shell (HTML/JS), so installed users
 // always get the latest code the moment they're online - falls back to
 // cache only when offline. Firebase traffic (live orders/stock/auth) is
 // never intercepted - always goes straight to the network.
 
-const CACHE_NAME = 'pil-portal-bihar-v2';
+const CACHE_NAME = 'pil-portal-v3';
 const APP_SHELL = [
   './',
   './index.html',

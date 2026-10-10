@@ -1,7 +1,7 @@
 {
-  "name": "Pil Order Portal-Bihar",
-  "short_name": "PIL Portal",
-  "description": "Order, stock and account management portal for PIL Bihar stockists",
+  "name": "Pil Order Portal",
+  "short_name": "Pil Portal",
+  "description": "Order, stock and account management portal for Pil stockists",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
