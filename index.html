@@ -12,6 +12,16 @@
   })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script>
+  // Capture the browser's install prompt as early as possible, so it can
+  // never be missed because the main script loaded later.
+  window.__pwaPromptEvent=null;
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault();
+    window.__pwaPromptEvent=e;
+    window.dispatchEvent(new Event('pwa-prompt-ready'));
+  });
+</script>
 <title>Pil Order Portal</title>
 <meta name="description" content="Pil Order Portal - place and track orders online." />
 <meta property="og:type" content="website" />
@@ -3629,35 +3639,56 @@ async function loadThoughtOfTheDay(){
 }
 </script>
 <script>
-let _deferredInstallPrompt = null;
+let _deferredInstallPrompt = window.__pwaPromptEvent || null;
 const _installBtnSelector = '#pwa-install-btn, #pwa-install-btn-admin, #pwa-install-btn-login, #pwa-install-btn-login-card';
+let _installDismissed = false; // user closed the browser's install popup during this page visit
 
 function _isIOS(){
   return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
 }
 function _isRunningInstalled(){
-  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const modes = ['standalone','minimal-ui','fullscreen','window-controls-overlay'];
+  return modes.some(m => window.matchMedia('(display-mode: ' + m + ')').matches) || window.navigator.standalone === true;
+}
+// Facebook / Instagram / similar in-app browsers can't install web apps at all.
+function _isInAppBrowser(){
+  return /FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|Snapchat|; wv\)/i.test(navigator.userAgent);
+}
+// Remembers (on this device/browser) that the app is already installed, so a
+// normal browser tab can say so instead of giving misleading install steps.
+function _installedFlag(){ try{ return localStorage.getItem('pil-app-installed') === '1'; }catch(e){ return false; } }
+function _setInstalledFlag(on){
+  try{ if(on) localStorage.setItem('pil-app-installed','1'); else localStorage.removeItem('pil-app-installed'); }catch(e){}
 }
 function _hideInstallButtons(){
   document.querySelectorAll(_installBtnSelector).forEach(btn => { btn.style.display = 'none'; });
 }
-
-// If already installed and running as an app, no point showing "Install" -
-// otherwise the button stays visible on every platform (Chrome/Edge on
-// phone/tablet/desktop, Firefox, desktop Safari, iOS Safari) so there's
-// always a way to install or get instructions, regardless of browser support.
-if(_isRunningInstalled()){
-  document.addEventListener('DOMContentLoaded', _hideInstallButtons);
+// Buttons stay visible in a normal browser tab (so there is always a way to
+// install or get the right steps); they are hidden only inside the installed
+// app itself, where "Install" makes no sense.
+function _refreshInstallButtons(){
+  if(_isRunningInstalled()){ _hideInstallButtons(); return; }
+  document.querySelectorAll(_installBtnSelector).forEach(btn => {
+    btn.style.display = (btn.id === 'pwa-install-btn-login-card') ? 'flex' : 'inline-flex';
+  });
 }
 
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  _deferredInstallPrompt = e;
-});
+if(_isRunningInstalled()) _setInstalledFlag(true);
+_refreshInstallButtons();
+document.addEventListener('DOMContentLoaded', _refreshInstallButtons);
 
+// The browser only offers the install prompt when the app is NOT installed,
+// so this also corrects a stale "installed" flag (e.g. after uninstalling).
+window.addEventListener('pwa-prompt-ready', () => {
+  _deferredInstallPrompt = window.__pwaPromptEvent;
+  _setInstalledFlag(false);
+  _refreshInstallButtons();
+});
 window.addEventListener('appinstalled', () => {
   _deferredInstallPrompt = null;
+  window.__pwaPromptEvent = null;
+  _setInstalledFlag(true);
   _hideInstallButtons();
 });
 
@@ -3681,36 +3712,49 @@ function _showInfoModal(title, message){
 }
 
 async function triggerPwaInstall(){
+  // 1) One-tap native install (Chrome / Edge / Samsung Internet, phone + PC)
   if(_deferredInstallPrompt){
-    _deferredInstallPrompt.prompt();
-    const { outcome } = await _deferredInstallPrompt.userChoice;
-    console.log('PWA install outcome:', outcome);
-    _deferredInstallPrompt = null;
-    _hideInstallButtons();
-    return;
+    const promptEvent = _deferredInstallPrompt;
+    _deferredInstallPrompt = null; // a prompt event can only be used once
+    try{
+      promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      if(outcome === 'accepted'){
+        _setInstalledFlag(true);
+        _hideInstallButtons();
+      } else {
+        // Closed the popup: keep the button, the next tap shows the menu steps
+        _installDismissed = true;
+      }
+      return;
+    }catch(e){
+      console.warn('Install prompt failed:', e); // fall through to manual steps
+    }
   }
 
-  // No native prompt available - browser/platform doesn't support it, or
-  // hasn't offered it yet. Give the correct manual steps for each case.
+  if(_isRunningInstalled()) return; // already inside the installed app
+
+  // 2) Cases where the native prompt is not available - give the right steps
   const ua = navigator.userAgent;
   const isIOS = _isIOS();
   const isFirefox = /firefox|fxios/i.test(ua);
   const isSafariDesktop = /^((?!chrome|android).)*safari/i.test(ua) && !isIOS;
   const isEdge = /edg\//i.test(ua);
-  const isChromeLike = /chrome|crios/i.test(ua) && !isEdge;
 
-  if(isIOS){
-    _showInfoModal('Install on iPhone/iPad', 'Tap the Share icon in Safari, then "Add to Home Screen". Chrome on iOS cannot install apps directly \u2014 this is an Apple restriction, not something we can fix from the site.');
+  if(_isInAppBrowser()){
+    _showInfoModal('Open in Chrome first', 'Apps like WhatsApp / Facebook open links in their own mini-browser, which cannot install apps. Tap the menu (\u22ee or \u2026) and choose "Open in Chrome" (or "Open in browser"), then tap Install again.');
+  } else if(isIOS){
+    _showInfoModal('Install on iPhone/iPad', 'Tap the Share icon in Safari, then "Add to Home Screen". Chrome on iOS cannot install apps directly \u2014 this is an Apple restriction.');
   } else if(isFirefox){
-    _showInfoModal('Install on Firefox', 'Firefox doesn\'t support one-tap install. Open the browser menu (\u2630) and look for "Install" / "Add to Home screen" \u2014 on desktop Firefox, you can also just bookmark this page for quick access.');
+    _showInfoModal('Install on Firefox', 'Firefox doesn\'t support one-tap install. Open the browser menu (\u2630) and look for "Install" / "Add to Home screen".');
   } else if(isSafariDesktop){
-    _showInfoModal('Install on Mac Safari', 'Click the Share icon in the toolbar, then "Add to Dock" (or "Add to Home Screen") to install this app.');
+    _showInfoModal('Install on Mac Safari', 'Click the Share icon in the toolbar, then "Add to Dock" to install this app.');
+  } else if(_installedFlag() && !_installDismissed){
+    _showInfoModal('Already installed', 'This app is already installed on this device. Open it from your Home screen / app drawer / Start menu \u2014 look for "Pil Order Portal". (In Chrome on a PC you can also click the "Open in app" icon at the right end of the address bar.)');
   } else if(isEdge){
     _showInfoModal('Install on Edge', 'Click the "\u2295 Install" icon in the address bar, or open the menu (\u22ef) \u2192 "Apps" \u2192 "Install this site as an app".');
-  } else if(isChromeLike){
-    _showInfoModal('Almost ready', 'The install option isn\'t ready quite yet \u2014 browse the site for a few more seconds and try again, or use Chrome\'s menu (\u22ee) \u2192 "Install app" / "Add to Home screen".');
   } else {
-    _showInfoModal('Install this app', 'Your browser may not support one-tap install. Look for an "Install app" or "Add to Home screen" option in your browser\'s menu.');
+    _showInfoModal('Install from the browser menu', 'Open the browser menu (\u22ee) and tap "Install app" / "Add to Home screen". If you don\'t see that option, the app is probably already installed on this device \u2014 look for "Pil Order Portal" on your Home screen / app drawer / Start menu.');
   }
 }
 
