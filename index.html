@@ -1008,6 +1008,22 @@ function _titleCaseState(s){
   return String(s||'').trim().toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 }
 
+// Maps whatever is typed in a sheet's State column ("Gujrat", "GUJARAT ",
+// "Gujarat State") onto one of the configured states. Returns '' when it
+// can't be matched with certainty (so nothing gets assigned to a wrong state).
+function _canonicalState(raw){
+  const n=_normState(raw).replace(/\bSTATE\b/,'').trim();
+  if(!n) return '';
+  const keys=_loginStateList();
+  const exact=keys.find(k=>_normState(k)===n);
+  if(exact) return exact;
+  if(n.length>=3){
+    const loose=keys.filter(k=>{const kn=_normState(k);return kn.startsWith(n)||n.startsWith(kn.slice(0,3));});
+    if(loose.length===1) return loose[0];
+  }
+  return '';
+}
+
 function enterCustomerSession(customer){
   currentCustomer=customer;
   currentCustomer.cf=CUSTOMER_CF[currentCustomer.code]||null;
@@ -2607,7 +2623,7 @@ function handleMasterFile(evt){
   reader.onload=function(e){
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-      const partySheetName=wb.SheetNames.find(n=>_muNorm(n).includes('party'));
+      let partySheetName=wb.SheetNames.find(n=>/party|parties|customer|distributor|dealer/.test(_muNorm(n))&&!_muNorm(n).includes('product'));
       const productSheetName=wb.SheetNames.find(n=>_muNorm(n).includes('product'));
       // Sheet NAME containing "stock" is the old CFA-report convention, but the
       // raw daily SAP export (e.g. "SAPUI5 Export") never gets renamed - so also
@@ -2627,13 +2643,23 @@ function handleMasterFile(evt){
           return hasUnrestricted&&(hasPlant||hasDepotCol);
         });
       }
+      // Customer sheet with an unexpected tab name: recognise it by its columns
+      // (a code column + a Party/Customer/Dealer Name column) instead.
+      if(!partySheetName){
+        partySheetName=wb.SheetNames.find(n=>{
+          if(n===productSheetName||n===stockSheetName) return false;
+          const rows=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:''});
+          const hIdx=_muFindHeaderRow(rows,['SAP Code','Party Code','Customer Code','Dealer Code']);
+          return hIdx!==-1&&_muFindCol(rows[hIdx],['Party Name','Customer Name','Dealer Name'])!==-1;
+        });
+      }
       if(!partySheetName && !productSheetName && !stockSheetName){
         errEl.textContent=`Could not find a "Party List", "Product List", or stock sheet. Sheets found: ${wb.SheetNames.join(', ')}`;
         errEl.style.display='block';
         return;
       }
 
-      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[]};
+      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[],stateNotes:{defaulted:0,blank:0,unknown:{},counts:{}}};
 
       if(productSheetName){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[productSheetName],{header:1,defval:''});
@@ -2705,10 +2731,18 @@ function handleMasterFile(evt){
               const code=String(row[col.code]==null?'':row[col.code]).trim();
               const name=String(row[col.name]==null?'':row[col.name]).trim();
               if(!code||!name) continue;
+              const rawState=col.state!==-1?String(row[col.state]||'').trim():'';
+              let custState=_canonicalState(rawState);
+              if(!custState){
+                if(!rawState&&currentAdminState){ custState=currentAdminState; staged.stateNotes.defaulted++; }
+                else if(!rawState){ staged.stateNotes.blank++; }
+                else { custState=rawState; staged.stateNotes.unknown[rawState]=(staged.stateNotes.unknown[rawState]||0)+1; }
+              }
+              if(custState) staged.stateNotes.counts[custState]=(staged.stateNotes.counts[custState]||0)+1;
               const cust={
                 code,name,
                 city:(col.town!==-1&&row[col.town])?String(row[col.town]).trim():(col.city!==-1?String(row[col.city]||'').trim():(col.hq!==-1?String(row[col.hq]||'').trim():'')),
-                state:col.state!==-1?String(row[col.state]||'').trim():'',
+                state:custState,
                 soName:col.soName!==-1?String(row[col.soName]||'').trim():'',
                 phone:col.phone!==-1?String(row[col.phone]||'').trim():'',
                 email:col.email!==-1?String(row[col.email]||'').trim():'',
@@ -2819,10 +2853,21 @@ function handleMasterFile(evt){
         }
       }
 
+      const usedSheets=[partySheetName,productSheetName,stockSheetName];
+      const ignoredSheets=wb.SheetNames.filter(n=>!usedSheets.includes(n));
+      if(ignoredSheets.length) staged.skipped.push(`Sheet(s) not recognised and ignored: ${ignoredSheets.join(', ')} (rename the customer sheet to "Party List", the product sheet to "Product List")`);
       _muStaged=staged;
       const lines=[];
       lines.push(`<strong>Products:</strong> ${staged.newProducts.length} new, ${staged.updProducts.length} to update`);
       lines.push(`<strong>Customers:</strong> ${staged.newCustomers.length} new, ${staged.updCustomers.length} to update`);
+      const sn=staged.stateNotes;
+      const stateParts=Object.keys(sn.counts).map(s=>`${s} ${sn.counts[s]}`);
+      if(stateParts.length) lines.push(`<strong>Customers by state:</strong> ${stateParts.join(', ')}`);
+      if(sn.defaulted) lines.push(`${sn.defaulted} customer(s) had no State in the sheet - set to <strong>${currentAdminState}</strong> (the state you are logged in as).`);
+      const unk=Object.keys(sn.unknown);
+      if(unk.length||sn.blank) lines.push(`<span style="color:#b91c1c">State missing/not recognised for ${sn.blank+unk.reduce((t,k)=>t+sn.unknown[k],0)} customer(s)${unk.length?` (${unk.map(k=>'"'+k+'" x'+sn.unknown[k]).join(', ')})`:''} - they will NOT show in any state's login or admin list. Fix the State column (Bihar / Gujarat) and upload again.</span>`);
+      const otherState=Object.keys(sn.counts).filter(s=>currentAdminState&&_normState(s)!==_normState(currentAdminState));
+      if(otherState.length) lines.push(`Note: you are logged in as <strong>${currentAdminState}</strong> admin, so ${otherState.join(', ')} customers will only be visible when you log in with that state's admin password (or pick that state on the customer login).`);
       if(staged.stockRowCount) lines.push(`<strong>Stock:</strong> ${staged.stockRowCount} products x depots ${staged.stockCfCodes.join(', ')} - this will overwrite live stock for those depot/product combinations.`);
       if(staged.skipped.length) lines.push(`<span style="color:#b91c1c">Issues: ${staged.skipped.join(' | ')}</span>`);
       const totalRows=staged.newProducts.length+staged.updProducts.length+staged.newCustomers.length+staged.updCustomers.length+staged.stockRowCount;
