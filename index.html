@@ -364,6 +364,7 @@
             <input id="prod-search" placeholder="Search product..." oninput="renderProducts()" style="padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;font-family:var(--font-sans);width:160px" />
           </div>
         </div>
+        <div id="stock-notice" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:var(--border-radius-md);background:var(--amber-tint);border:1px solid var(--color-border-secondary);font-size:13px;color:var(--color-text-primary)"></div>
         <div id="cart-summary-bar" class="cart-summary-bar"></div>
         <div class="card" style="padding:0">
           <table>
@@ -518,7 +519,7 @@
         </div>
         <div class="card" style="padding:0">
           <table>
-              <thead><tr><th>Code</th><th>Name</th><th>City</th><th>State</th><th>SO Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>City</th><th>State</th><th>C&amp;F</th><th>SO Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
               <tbody id="admin-cust-tbody"></tbody>
             </table>
         </div>
@@ -1328,6 +1329,20 @@ function calcTotal(){
   document.getElementById('order-total').textContent='₹'+total.toFixed(2);
   document.getElementById('item-count').textContent=count;
   renderCartSidebar(total,count);
+  updateStockNotice();
+}
+
+function updateStockNotice(){
+  const el=document.getElementById('stock-notice');
+  if(!el||!currentCustomer) return;
+  let msg='';
+  if(!currentCustomer.cf){
+    msg='Stock cannot be shown: your account has no C&F (depot) code. Please ask your admin to add it.';
+  } else if(LIVE_STOCK_META!==null&&!(LIVE_STOCK&&LIVE_STOCK[currentCustomer.cf]&&Object.keys(LIVE_STOCK[currentCustomer.cf]).length)){
+    msg='No stock has been uploaded for your depot ('+currentCustomer.cf+'). Please ask your admin to upload the stock file with this depot code.';
+  }
+  el.textContent=msg;
+  el.style.display=msg?'block':'none';
 }
 
 // Always-visible live strip (main content area, works on desktop AND
@@ -1951,6 +1966,7 @@ function renderAdminCustomers(){
       <td style="font-weight:600">${c.name}</td>
       <td>${c.city}</td>
       <td>${c.state}</td>
+      <td style="font-size:12px;font-family:var(--font-mono)">${CUSTOMER_CF[c.code]||'<span style="color:#b91c1c">missing</span>'}</td>
       <td style="font-size:12px;color:var(--color-text-secondary)">${c.soName||'—'}</td>
       <td>${c.phone||'—'}</td>
       <td style="font-size:12px;color:var(--color-text-secondary)">${c.email||'—'}</td>
@@ -2128,10 +2144,10 @@ async function loadContactOverrides(){
         if(o.city) existing.city=o.city;
         if(o.state) existing.state=o.state;
         if(o.soName) existing.soName=o.soName;
-        if(o.cf) CUSTOMER_CF[code]=o.cf;
+        if(o.cf) CUSTOMER_CF[code]=String(o.cf).trim().toUpperCase();
       } else {
         CUSTOMERS.push({code, name:o.name||'', city:o.city||'', state:o.state||'', phone:o.phone||'', email:o.email||'', soName:o.soName||''});
-        if(o.cf) CUSTOMER_CF[code]=o.cf;
+        if(o.cf) CUSTOMER_CF[code]=String(o.cf).trim().toUpperCase();
       }
     });
   }catch(e){
@@ -2279,7 +2295,7 @@ async function loadCustomerAdditions(){
     const additions=snap.val();
     Object.values(additions).forEach(c=>{
       if(!CUSTOMERS.find(x=>x.code===c.code)) CUSTOMERS.push(c);
-      if(c.cf) CUSTOMER_CF[c.code]=c.cf;
+      if(c.cf) CUSTOMER_CF[c.code]=String(c.cf).trim().toUpperCase();
     });
   }catch(e){
     console.error('Could not load added customers',e);
@@ -2409,6 +2425,34 @@ async function saveAddCustomer(){
 // deliberate: a bad column mapping should never silently overwrite live
 // pricing/scheme data for the whole catalogue.
 let _muStaged=null;
+
+// Explains, in the upload preview, whether the stock file actually lines up
+// with this state's customers (depot code on the customer == depot in stock).
+function _stockDiagLines(staged){
+  const out=[];
+  if(!staged.stockRowCount) return out;
+  const stockCfs=new Set(Object.keys(staged.stockUpdates));
+  const people={}, cfOf={};
+  CUSTOMERS.forEach(x=>{people[x.code]=x;});
+  Object.keys(CUSTOMER_CF).forEach(k=>{cfOf[k]=String(CUSTOMER_CF[k]||'').trim().toUpperCase();});
+  [...staged.newCustomers,...staged.updCustomers].forEach(x=>{ people[x.code]=x; if(x.cf) cfOf[x.code]=String(x.cf).trim().toUpperCase(); });
+  const mine=Object.keys(people).filter(code=>!currentAdminState||_normState(people[code].state)===_normState(currentAdminState));
+  let noCf=0, okCount=0; const noStock={};
+  mine.forEach(code=>{
+    const cf=cfOf[code]||'';
+    if(!cf){ noCf++; return; }
+    if(stockCfs.has(cf)) okCount++; else noStock[cf]=(noStock[cf]||0)+1;
+  });
+  const who=currentAdminState?_titleCaseState(currentAdminState)+' ':'';
+  const bad=(t)=>`<span style="color:#b91c1c">${t}</span>`;
+  if(noCf) out.push(bad(`${noCf} ${who}customer(s) have NO C&F code, so they will see no stock. Fill the "C & F Code" column in the Party List and upload it again.`));
+  const ns=Object.keys(noStock);
+  if(ns.length) out.push(bad(`No stock in this file for depot(s): ${ns.map(k=>k+' ('+noStock[k]+' customers)').join(', ')}. This file has depots: ${[...stockCfs].join(', ')}. The code in the Party List and the stock file must be exactly the same.`));
+  const rj=Object.keys(staged.stockRejected);
+  if(rj.length) out.push(bad(`Stock rows skipped - depot/plant code not recognised: ${rj.slice(0,6).map(k=>k+' x'+staged.stockRejected[k]).join(', ')}. Put the same code in the Party List "C & F Code" column and upload both together.`));
+  if(!noCf&&!ns.length&&!rj.length&&okCount) out.push(`<span style="color:#15803d">Stock matches all ${okCount} ${who}customers.</span>`);
+  return out;
+}
 
 // Parses an expiry cell value that may arrive as a real Excel date, a raw
 // Excel serial number (if the cell wasn't tagged as a date), or - common
@@ -2659,7 +2703,7 @@ function handleMasterFile(evt){
         return;
       }
 
-      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[],stateNotes:{defaulted:0,blank:0,unknown:{},counts:{}}};
+      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[],stockRejected:{},stateNotes:{defaulted:0,blank:0,unknown:{},counts:{}}};
 
       if(productSheetName){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[productSheetName],{header:1,defval:''});
@@ -2720,7 +2764,7 @@ function handleMasterFile(evt){
             state:_muFindCol(header,['State']),
             phone:_muFindCol(header,['Phone','Mobile','Contact']),
             email:_muFindCol(header,['Email']),
-            cf:_muFindCol(header,['C & F','C&F','CF Code','C & F Code'])
+            cf:_muFindCol(header,['C & F','C&F','CF Code','C & F Code','CFA','CFA Code','Depot','Depot Code','Plant','Plant Code','CF'])
           };
           if(col.code===-1||col.name===-1){
             staged.skipped.push('Party List: could not find SAP Code / Party Name columns.');
@@ -2746,7 +2790,7 @@ function handleMasterFile(evt){
                 soName:col.soName!==-1?String(row[col.soName]||'').trim():'',
                 phone:col.phone!==-1?String(row[col.phone]||'').trim():'',
                 email:col.email!==-1?String(row[col.email]||'').trim():'',
-                cf:col.cf!==-1?String(row[col.cf]||'').trim():''
+                cf:col.cf!==-1?String(row[col.cf]||'').trim().toUpperCase():''
               };
               if(CUSTOMERS.find(c=>c.code===code)) staged.updCustomers.push(cust);
               else staged.newCustomers.push(cust);
@@ -2755,6 +2799,10 @@ function handleMasterFile(evt){
         }
       }
 
+      // Depot codes we already know from customers (existing + this upload), so a
+      // depot that is not named C0xx / Cxxx (e.g. a Gujarat C&F) is still accepted.
+      const knownCf=new Set([...Object.values(CUSTOMER_CF),...staged.newCustomers.map(x=>x.cf),...staged.updCustomers.map(x=>x.cf)]
+        .filter(Boolean).map(x=>String(x).trim().toUpperCase()));
       if(stockSheetName){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[stockSheetName],{header:1,defval:''});
         const hIdx=_muFindHeaderRow(rows,['Material Code','Material','Item Code','Product Code']);
@@ -2771,8 +2819,15 @@ function handleMasterFile(evt){
           // column in the daily report with its code in the header.
           const cfCols=[];
           header.forEach((h,idx)=>{
-            const m=String(h==null?'':h).match(/\b(C0\d\d)\b/i);
-            if(m) cfCols.push({idx,cf:m[1].toUpperCase()});
+            const hs=String(h==null?'':h).toUpperCase();
+            const m=hs.match(/\b(C0\d\d)\b/);
+            let found=m?m[1]:null;
+            if(!found){
+              for(const k of knownCf){
+                if(/^[A-Z0-9]+$/.test(k)&&new RegExp('(^|[^A-Z0-9])'+k+'($|[^A-Z0-9])').test(hs)){ found=k; break; }
+              }
+            }
+            if(found) cfCols.push({idx,cf:found});
           });
 
           if(plantCol!==-1&&unrestrictedCol!==-1){
@@ -2793,7 +2848,8 @@ function handleMasterFile(evt){
                 if(!row) continue;
                 const code=String(row[codeCol]==null?'':row[codeCol]).trim();
                 const cf=String(row[plantCol]==null?'':row[plantCol]).trim().toUpperCase();
-                if(!/^\d+$/.test(code)||!/^C\d+$/.test(cf)) continue;
+                if(!/^\d+$/.test(code)) continue;
+                if(!/^C\d+$/.test(cf)&&!knownCf.has(cf)){ if(cf) staged.stockRejected[cf]=(staged.stockRejected[cf]||0)+1; continue; }
                 const qty=parseFloat(row[unrestrictedCol])||0;
                 const blocked=blockedCol!==-1?(parseFloat(row[blockedCol])||0):0;
                 const batch=batchCol!==-1?String(row[batchCol]||'').trim():'';
@@ -2868,6 +2924,7 @@ function handleMasterFile(evt){
       if(unk.length||sn.blank) lines.push(`<span style="color:#b91c1c">State missing/not recognised for ${sn.blank+unk.reduce((t,k)=>t+sn.unknown[k],0)} customer(s)${unk.length?` (${unk.map(k=>'"'+k+'" x'+sn.unknown[k]).join(', ')})`:''} - they will NOT show in any state's login or admin list. Fix the State column (Bihar / Gujarat) and upload again.</span>`);
       const otherState=Object.keys(sn.counts).filter(s=>currentAdminState&&_normState(s)!==_normState(currentAdminState));
       if(otherState.length) lines.push(`Note: you are logged in as <strong>${currentAdminState}</strong> admin, so ${otherState.join(', ')} customers will only be visible when you log in with that state's admin password (or pick that state on the customer login).`);
+      _stockDiagLines(staged).forEach(l=>lines.push(l));
       if(staged.stockRowCount) lines.push(`<strong>Stock:</strong> ${staged.stockRowCount} products x depots ${staged.stockCfCodes.join(', ')} - this will overwrite live stock for those depot/product combinations.`);
       if(staged.skipped.length) lines.push(`<span style="color:#b91c1c">Issues: ${staged.skipped.join(' | ')}</span>`);
       const totalRows=staged.newProducts.length+staged.updProducts.length+staged.newCustomers.length+staged.updCustomers.length+staged.stockRowCount;
@@ -2907,12 +2964,12 @@ async function confirmMasterUpload(){
       await set(ref(db,`customerContacts/${c.code}`),c);
       const existing=CUSTOMERS.find(x=>x.code===c.code);
       if(existing) Object.assign(existing,c);
-      if(c.cf) CUSTOMER_CF[c.code]=c.cf;
+      if(c.cf) CUSTOMER_CF[c.code]=String(c.cf).trim().toUpperCase();
     }
     for(const c of _muStaged.newCustomers){
       await set(ref(db,`customerAdditions/${c.code}`),c);
       if(!CUSTOMERS.find(x=>x.code===c.code)) CUSTOMERS.push(c);
-      if(c.cf) CUSTOMER_CF[c.code]=c.cf;
+      if(c.cf) CUSTOMER_CF[c.code]=String(c.cf).trim().toUpperCase();
     }
     if(_muStaged.stockRowCount){
       // Single multi-path update rather than one set() per cell - this is
