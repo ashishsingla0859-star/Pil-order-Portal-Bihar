@@ -190,6 +190,8 @@
   .state-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
   .state-tab { flex: 1 1 0; min-width: 80px; text-align: center; padding: 9px 8px; font-size: 13px; cursor: pointer; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-secondary); user-select: none; transition: background .15s, color .15s; }
   .state-tab:hover { border-color: var(--cobalt); }
+  .state-count { font-size: 10px; font-weight: 400; opacity: .85; margin-top: 2px; font-family: var(--font-mono); }
+  .login-stats { font-size: 11px; color: var(--color-text-secondary); text-align: center; margin-top: 4px; font-family: var(--font-mono); }
   .state-tab.active { background: var(--cobalt); border-color: var(--cobalt); color: #fff; font-weight: 600; }
   .field { display: flex; flex-direction: column; gap: 5px; }
   .field label { font-size: 11px; color: var(--color-text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -324,6 +326,7 @@
       <div id="state-select-wrap" class="field">
         <label>Select your state</label>
         <div id="login-state-tabs" class="state-tabs"></div>
+        <div id="login-stats-line" class="login-stats"></div>
         <select id="login-state-select" onchange="onLoginStateChange()" style="display:none"></select>
       </div>
       <div id="cust-select-wrap" class="field">
@@ -337,7 +340,7 @@
       <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:4px">
         <i class="ti ti-arrow-right"></i> Sign in
       </button>
-      <div class="sub" style="margin-top:-6px">Build v7 · 27 Oct</div>
+      <div class="sub" id="build-tag" style="margin-top:-6px"></div>
     </div>
     <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:flex;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
       <i class="ti ti-download"></i> Install app on this device
@@ -1037,6 +1040,41 @@ function setRole(r){
 // ---- Customer login: state-wise account list ----
 // The state list comes from STATE_ADMIN_PASSWORDS, so adding a new state
 // there automatically adds it here as well - nothing else to change.
+// ---- Live party / product counts shown on the login screen ----
+// Computed straight from Firebase with live listeners, so parties or products
+// added (or removed) by any admin on any device update here on their own.
+const _BAKED_CUSTOMERS=CUSTOMERS.map(c=>({code:c.code,state:c.state}));
+const _BAKED_PRODUCT_CODES=PRODUCTS.map(p=>p.code);
+let _liveCustAdd=null,_liveCustCon=null,_liveProdAdd=null,_loginStats=null;
+function _computeLoginStats(){
+  if(_liveCustAdd===null&&_liveCustCon===null&&_liveProdAdd===null) return null;
+  const byCode={};
+  _BAKED_CUSTOMERS.forEach(c=>{ byCode[c.code]={state:c.state}; });
+  Object.values(_liveCustAdd||{}).forEach(c=>{ if(c&&c.code) byCode[c.code]={state:c.state}; });
+  Object.keys(_liveCustCon||{}).forEach(code=>{
+    const o=_liveCustCon[code]||{};
+    const cur=byCode[code]||{state:''};
+    if(o.state) cur.state=o.state;
+    byCode[code]=cur;
+  });
+  const parties={};
+  Object.values(byCode).forEach(c=>{ const k=_normState(c.state); if(k) parties[k]=(parties[k]||0)+1; });
+  const prods=new Set(_BAKED_PRODUCT_CODES);
+  Object.values(_liveProdAdd||{}).forEach(p=>{ if(p&&p.code) prods.add(p.code); });
+  return {parties,products:prods.size};
+}
+function refreshLoginStats(){
+  _loginStats=_computeLoginStats();
+  const sel=document.getElementById('login-state-select');
+  if(sel&&sel.value) renderStateTabs(sel.value);
+}
+function startLoginStats(){
+  const {db,ref,onValue}=window._fb;
+  onValue(ref(db,'customerAdditions'),s=>{ _liveCustAdd=s.val()||{}; refreshLoginStats(); });
+  onValue(ref(db,'customerContacts'),s=>{ _liveCustCon=s.val()||{}; refreshLoginStats(); });
+  onValue(ref(db,'productAdditions'),s=>{ _liveProdAdd=s.val()||{}; refreshLoginStats(); });
+}
+
 function _loginStateList(){
   const extra=Object.keys(window.STATE_ADMIN_PASSWORDS||{}).filter(k=>!PORTAL_STATES.includes(k));
   return PORTAL_STATES.concat(extra);
@@ -1069,9 +1107,14 @@ function populateCustomerSelect(){
 function renderStateTabs(chosen){
   const box=document.getElementById('login-state-tabs');
   if(!box) return;
-  box.innerHTML=_loginStateList().map(s=>
-    `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')">${_titleCaseState(s)}</div>`
-  ).join('');
+  const st=_loginStats;
+  box.innerHTML=_loginStateList().map(s=>{
+    const n=st?(st.parties[_normState(s)]||0):null;
+    const cnt=n===null?'':`<div class="state-count">${n} ${n===1?'party':'parties'}</div>`;
+    return `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')"><div>${_titleCaseState(s)}</div>${cnt}</div>`;
+  }).join('');
+  const line=document.getElementById('login-stats-line');
+  if(line) line.textContent=st?(st.products+' products in catalog (same for all states)'):'';
 }
 function pickLoginState(s){
   const stateSel=document.getElementById('login-state-select');
@@ -3732,12 +3775,20 @@ function _sortMasterLists(){
 (function init(){
   _sortMasterLists();
   populateCustomerSelect();
+  // Build tag = when THIS index.html was last uploaded (read from the server's
+  // Last-Modified header), so it updates by itself on every new upload.
+  (function(){
+    const el=document.getElementById('build-tag'); if(!el) return;
+    const d=new Date(document.lastModified);
+    if(!isNaN(d)) el.textContent='Updated '+d.toLocaleDateString('en-IN')+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  })();
   buildCatFilter();
   document.getElementById('prod-count-label').textContent=`(${PRODUCTS.length} products)`;
 
   window.addEventListener('firebase-ready',()=>{
     console.log('Firebase ready!');
     subscribeStock();
+    startLoginStats();
     Promise.all([
       // ORDER MATTERS: the base records (additions) must load first and the
       // later edits (overrides: new C&F code, prices, state...) are applied on
