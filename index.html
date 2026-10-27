@@ -3071,7 +3071,14 @@ async function confirmMasterUpload(){
       await set(ref(db,`productAdditions/${p.code}`),p);
       if(!PRODUCTS.find(x=>x.code===p.code)) PRODUCTS.push(p);
     }
+    let _addedCust={};
+    try{ const a=await window._fb.get(ref(db,'customerAdditions')); _addedCust=a.exists()?a.val():{}; }catch(e){}
+    const _addedByCode={};
+    Object.keys(_addedCust).forEach(k=>{ const v=_addedCust[k]; if(v&&v.code) _addedByCode[v.code]={key:k,val:v}; });
     for(const c of _muStaged.updCustomers){
+      // Also refresh the original record if this customer came from an earlier
+      // upload, so the old C&F code can never come back.
+      if(_addedByCode[c.code]) await set(ref(db,`customerAdditions/${_addedByCode[c.code].key}`),Object.assign({},_addedByCode[c.code].val,Object.fromEntries(Object.entries(c).filter(([k,v])=>v!==''&&v!=null))));
       await set(ref(db,`customerContacts/${c.code}`),c);
       const existing=CUSTOMERS.find(x=>x.code===c.code);
       if(existing) Object.assign(existing,c);
@@ -3680,10 +3687,13 @@ function _sortMasterLists(){
     console.log('Firebase ready!');
     subscribeStock();
     Promise.all([
-      loadContactOverrides(),
-      loadCustomerAdditions(),
-      loadProductOverrides(),
-      loadProductAdditions()
+      // ORDER MATTERS: the base records (additions) must load first and the
+      // later edits (overrides: new C&F code, prices, state...) are applied on
+      // top. Loading them in parallel let whichever finished last win, so a
+      // corrected C&F code could silently flip back to the old one on reload -
+      // that is why stock appeared right after an upload and vanished later.
+      loadCustomerAdditions().then(()=>loadContactOverrides()),
+      loadProductAdditions().then(()=>loadProductOverrides())
     ]).then(()=>{
       _sortMasterLists();
       buildCatFilter();
