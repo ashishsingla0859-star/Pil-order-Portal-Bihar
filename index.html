@@ -1040,6 +1040,28 @@ function setRole(r){
 // ---- Customer login: state-wise account list ----
 // The state list comes from STATE_ADMIN_PASSWORDS, so adding a new state
 // there automatically adds it here as well - nothing else to change.
+// Excel download. On a phone this opens the share sheet right away, so the
+// file can be opened straight in Excel / Google Sheets / Drive / WhatsApp
+// instead of being hunted down in the Downloads folder. On a computer (or if
+// the phone does not support sharing files) it downloads normally.
+function saveExcel(wb,filename){
+  const isPhone=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+  if(isPhone&&navigator.share&&navigator.canShare){
+    try{
+      const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+      const file=new File([out],filename,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file],title:filename}).catch(err=>{
+          if(err&&err.name==='AbortError') return;   // user closed the sheet
+          XLSX.writeFile(wb,filename);                // anything else: normal download
+        });
+        return;
+      }
+    }catch(e){ /* fall through to normal download */ }
+  }
+  XLSX.writeFile(wb,filename);
+}
+
 // ---- Live party / product counts shown on the login screen ----
 // Computed straight from Firebase with live listeners, so parties or products
 // added (or removed) by any admin on any device update here on their own.
@@ -2285,7 +2307,7 @@ function exportReportsExcel(){
   wsSO['!cols']=[{wch:5},{wch:28},{wch:10},{wch:16}];
   XLSX.utils.book_append_sheet(wb,wsSO,'Sales Officers');
 
-  XLSX.writeFile(wb, `PIL_Reports_${dateStamp()}.xlsx`);
+  saveExcel(wb, `PIL_Reports_${dateStamp()}.xlsx`);
 }
 
 // ---- Manual contact edit (phone/email) ----
@@ -3611,7 +3633,7 @@ function exportSingleOrder(orderId){
   const safeName=(o.customer.name||'').replace(/[^a-zA-Z0-9 ]/g,'').replace(/\s+/g,'');
   const safeCode=(o.customer.code||'').toString().replace(/[^a-zA-Z0-9]/g,'');
   const orderSuffix=o.id.replace('ORD-','');
-  XLSX.writeFile(wb, `${safeName}${safeCode}_${orderSuffix}.xlsx`);
+  saveExcel(wb, `${safeName}${safeCode}_${orderSuffix}.xlsx`);
 }
 
 // Admin: Export all orders (respects current filters)
@@ -3674,7 +3696,7 @@ function exportOrders(){
 
   XLSX.utils.book_append_sheet(wb, ws1, 'Order Summary');
   XLSX.utils.book_append_sheet(wb, ws2, 'Order Line Items');
-  XLSX.writeFile(wb, `PIL_Orders_${dateStamp()}.xlsx`);
+  saveExcel(wb, `PIL_Orders_${dateStamp()}.xlsx`);
 }
 
 // Admin: Export product catalogue (respects current filter)
@@ -3697,7 +3719,7 @@ function exportProducts(){
   const ws=XLSX.utils.json_to_sheet(data);
   ws['!cols']=[{wch:14},{wch:42},{wch:20},{wch:8},{wch:12},{wch:12},{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb, ws, 'Product Catalogue');
-  XLSX.writeFile(wb, `PIL_Products_${dateStamp()}.xlsx`);
+  saveExcel(wb, `PIL_Products_${dateStamp()}.xlsx`);
 }
 
 // Admin: Export customers
@@ -3716,7 +3738,7 @@ function exportCustomers(){
   const ws=XLSX.utils.json_to_sheet(data);
   ws['!cols']=[{wch:16},{wch:36},{wch:18},{wch:18},{wch:20},{wch:14},{wch:32}];
   XLSX.utils.book_append_sheet(wb, ws, 'Customers');
-  XLSX.writeFile(wb, `PIL_Customers_${dateStamp()}.xlsx`);
+  saveExcel(wb, `PIL_Customers_${dateStamp()}.xlsx`);
 }
 
 // Customer: Export their own order history
@@ -3763,7 +3785,7 @@ function exportMyOrders(){
   ws2['!cols']=[{wch:20},{wch:12},{wch:14},{wch:34},{wch:8},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws1, 'My Orders');
   XLSX.utils.book_append_sheet(wb, ws2, 'Order Details');
-  XLSX.writeFile(wb, `PIL_MyOrders_${currentCustomer.code}_${dateStamp()}.xlsx`);
+  saveExcel(wb, `PIL_MyOrders_${currentCustomer.code}_${dateStamp()}.xlsx`);
 }
 
 // ===================== INIT =====================
