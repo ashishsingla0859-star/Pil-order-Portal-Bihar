@@ -81,7 +81,8 @@
   // needed anywhere else in the app.
   const STATE_ADMIN_PASSWORDS = {
     'BIHAR': 'generic@123',
-    'GUJARAT': 'gujrat@123'
+    'GUJARAT': 'gujrat@123',
+    'PUNJAB': 'punjab@123'
   };
 
   // Default CUSTOMER login password for each state (used until a customer
@@ -90,7 +91,8 @@
   // When adding a new state, add a line here AND in STATE_ADMIN_PASSWORDS.
   const STATE_DEFAULT_CUSTOMER_PASSWORDS = {
     'BIHAR': '123456',
-    'GUJARAT': '414243'
+    'GUJARAT': '414243',
+    'PUNJAB': '787980'
   };
 
   // ---- expose to global scope ----
@@ -184,6 +186,10 @@
   .login-tabs { display: flex; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); overflow: hidden; }
   .ltab { flex: 1; text-align: center; padding: 8px; font-size: 13px; cursor: pointer; background: var(--color-background-secondary); color: var(--color-text-secondary); }
   .ltab.active { background: var(--cobalt); color: #fff; font-weight: 500; }
+  .state-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .state-tab { flex: 1 1 0; min-width: 80px; text-align: center; padding: 9px 8px; font-size: 13px; cursor: pointer; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-secondary); user-select: none; transition: background .15s, color .15s; }
+  .state-tab:hover { border-color: var(--cobalt); }
+  .state-tab.active { background: var(--cobalt); border-color: var(--cobalt); color: #fff; font-weight: 600; }
   .field { display: flex; flex-direction: column; gap: 5px; }
   .field label { font-size: 11px; color: var(--color-text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
   .field select, .field input { width: 100%; padding: 8px 10px; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); font-size: 13px; font-family: var(--font-sans); background: var(--color-background-primary); color: var(--color-text-primary); }
@@ -316,7 +322,8 @@
       <div id="login-err" class="err" style="display:none"></div>
       <div id="cust-select-wrap" class="field">
         <label>Select your state</label>
-        <select id="login-state-select" onchange="onLoginStateChange()"></select>
+        <div id="login-state-tabs" class="state-tabs"></div>
+        <select id="login-state-select" onchange="onLoginStateChange()" style="display:none"></select>
         <label style="margin-top:10px">Select your account</label>
         <select id="cust-select"></select>
       </div>
@@ -982,10 +989,26 @@ function populateCustomerSelect(){
   }
 
   const chosen=stateSel.value;
+  renderStateTabs(chosen);
   const list=CUSTOMERS.filter(c=>_normState(c.state)===_normState(chosen));
   sel.innerHTML=list.length
     ? list.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('')
     : '<option value="">No customers found for this state</option>';
+}
+
+// State buttons on the login card: the clicked state turns dark. They drive
+// the (hidden) select, so the account list / saved choice logic is unchanged.
+function renderStateTabs(chosen){
+  const box=document.getElementById('login-state-tabs');
+  if(!box) return;
+  box.innerHTML=_loginStateList().map(s=>
+    `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')">${_titleCaseState(s)}</div>`
+  ).join('');
+}
+function pickLoginState(s){
+  const stateSel=document.getElementById('login-state-select');
+  stateSel.value=s;
+  onLoginStateChange();
 }
 
 function onLoginStateChange(){
