@@ -321,11 +321,13 @@
         <div class="ltab" onclick="setRole('admin')">Admin login</div>
       </div>
       <div id="login-err" class="err" style="display:none"></div>
-      <div id="cust-select-wrap" class="field">
+      <div id="state-select-wrap" class="field">
         <label>Select your state</label>
         <div id="login-state-tabs" class="state-tabs"></div>
         <select id="login-state-select" onchange="onLoginStateChange()" style="display:none"></select>
-        <label style="margin-top:10px">Select your account</label>
+      </div>
+      <div id="cust-select-wrap" class="field">
+        <label>Select your account</label>
         <select id="cust-select"></select>
       </div>
       <div class="field">
@@ -335,6 +337,7 @@
       <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:4px">
         <i class="ti ti-arrow-right"></i> Sign in
       </button>
+      <div class="sub" style="margin-top:-6px">Build v7 · 27 Oct</div>
     </div>
     <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:flex;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
       <i class="ti ti-download"></i> Install app on this device
@@ -351,6 +354,7 @@
       <button class="btn btn-sm" id="refresh-stock-btn" onclick="refreshStockAndProducts()"><i class="ti ti-refresh"></i> Refresh stock</button>
       <span id="stock-freshness-note" style="font-size:11px;color:var(--color-text-secondary)"></span>
       <span class="badge badge-cust" id="cust-name-badge"></span>
+      <span class="badge" id="cust-state-badge" style="background:var(--amber-tint);color:#8A5417"></span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
@@ -519,6 +523,7 @@
       <div id="ap-customers" style="display:none">
         <div class="page-title">Customers <span style="font-size:13px;color:var(--color-text-secondary);font-weight:400" id="cust-count-label"></span></div>
         <div class="filter-row" style="justify-content:flex-end;gap:8px">
+          <button class="btn btn-sm" onclick="bulkSetStateCf()" title="Set one depot (C&F) code for every customer of this state"><i class="ti ti-building-warehouse"></i> Set C&amp;F for all</button>
           <button class="btn btn-sm" onclick="requireOwner(openAddCustomer)"><i class="ti ti-plus"></i> Add customer</button>
           <button class="btn btn-sm" onclick="openPasswordManager()"><i class="ti ti-lock"></i> Manage Passwords</button>
           <button class="btn btn-excel btn-sm" onclick="exportCustomers()">
@@ -812,6 +817,11 @@
 </div>
 
 <script>
+// States shown on the login screen. Defined here (not in the Firebase module)
+// so the buttons appear instantly. To add a state: add it here AND in
+// STATE_ADMIN_PASSWORDS / STATE_DEFAULT_CUSTOMER_PASSWORDS at the top.
+const PORTAL_STATES=['BIHAR','GUJARAT','PUNJAB'];
+let _custLoaded=false;
 // ===================== DATA =====================
 const PRODUCTS=[
   // TODO: Add your own product master data here, e.g.:
@@ -1028,7 +1038,8 @@ function setRole(r){
 // The state list comes from STATE_ADMIN_PASSWORDS, so adding a new state
 // there automatically adds it here as well - nothing else to change.
 function _loginStateList(){
-  return Object.keys(window.STATE_ADMIN_PASSWORDS||{});
+  const extra=Object.keys(window.STATE_ADMIN_PASSWORDS||{}).filter(k=>!PORTAL_STATES.includes(k));
+  return PORTAL_STATES.concat(extra);
 }
 
 function populateCustomerSelect(){
@@ -1050,7 +1061,7 @@ function populateCustomerSelect(){
   const list=CUSTOMERS.filter(c=>_normState(c.state)===_normState(chosen));
   sel.innerHTML=list.length
     ? list.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('')
-    : '<option value="">No customers found for this state</option>';
+    : (_custLoaded?'<option value="">No customers found for this state</option>':'<option value="">Loading accounts...</option>');
 }
 
 // State buttons on the login card: the clicked state turns dark. They drive
@@ -1132,6 +1143,8 @@ function enterCustomerSession(customer){
   currentCustomer.cf=CUSTOMER_CF[currentCustomer.code]||null;
   currentRole='customer';
   document.getElementById('cust-name-badge').textContent=currentCustomer.name;
+  const _csb=document.getElementById('cust-state-badge');
+  if(_csb) _csb.textContent=currentCustomer.state?_titleCaseState(currentCustomer.state):'';
   showScreen('s-customer');
   loadThoughtOfTheDay();
   showGreetingToast(currentCustomer.name);
@@ -1176,10 +1189,16 @@ async function doLogin(){
   err.style.display='none';
 
   if(loginRole==='admin'){
-    const matchedState=Object.keys(window.STATE_ADMIN_PASSWORDS).find(s=>pw===window.STATE_ADMIN_PASSWORDS[s]);
-    if(!matchedState){err.textContent='Incorrect admin password.';err.style.display='block';return;}
-    saveSession({role:'admin',state:matchedState});
-    enterAdminSession(matchedState);
+    // The password must belong to the state that is selected (dark button).
+    // A password of another state is rejected - it never opens that state.
+    const chosenState=document.getElementById('login-state-select').value;
+    const expectedPw=(window.STATE_ADMIN_PASSWORDS||{})[chosenState];
+    if(!chosenState||!expectedPw||pw!==expectedPw){
+      err.textContent='Incorrect admin password for '+(chosenState?_titleCaseState(chosenState):'this state')+'.';
+      err.style.display='block';return;
+    }
+    saveSession({role:'admin',state:chosenState});
+    enterAdminSession(chosenState);
   } else {
     const sel=document.getElementById('cust-select');
     const candidate=CUSTOMERS.find(c=>c.code===sel.value);
@@ -2255,6 +2274,39 @@ async function loadContactOverrides(){
     });
   }catch(e){
     console.error('Could not load saved contact info',e);
+  }
+}
+
+// One-click fix for a whole state: sets the same depot (C&F) code on every
+// customer of the logged-in admin's state, saved in both places customers are
+// stored, so a wrong code from an old upload can never come back.
+async function bulkSetStateCf(){
+  const list=CUSTOMERS.filter(_belongsToAdminState);
+  if(!list.length){ alert('No customers found for this state.'); return; }
+  const stateName=currentAdminState?_titleCaseState(currentAdminState):'this state';
+  const cur=[...new Set(list.map(c=>CUSTOMER_CF[c.code]).filter(Boolean))];
+  const raw=prompt(`Set the depot (C&F) code for ALL ${list.length} ${stateName} customers.\nCurrent code(s): ${cur.join(', ')||'none'}\n\nType the new code (example: C011):`);
+  if(raw===null) return;
+  const code=String(raw).trim().toUpperCase();
+  if(!/^[A-Z0-9]{2,8}$/.test(code)){ alert('Please type a valid code like C011.'); return; }
+  if(!confirm(`All ${list.length} ${stateName} customers will use depot ${code}. Their stock will come from the depot ${code} stock upload. Continue?`)) return;
+  const {db,ref,get,update}=window._fb;
+  try{
+    let added={};
+    try{ const a=await get(ref(db,'customerAdditions')); added=a.exists()?a.val():{}; }catch(e){}
+    const keyByCode={};
+    Object.keys(added).forEach(k=>{ const v=added[k]; if(v&&v.code) keyByCode[v.code]=k; });
+    const upd={};
+    list.forEach(c=>{
+      upd[`customerContacts/${c.code}`]={code:c.code,name:c.name||'',city:c.city||'',state:c.state||'',phone:c.phone||'',email:c.email||'',soName:c.soName||'',cf:code};
+      if(keyByCode[c.code]) upd[`customerAdditions/${keyByCode[c.code]}/cf`]=code;
+    });
+    await update(ref(db),upd);
+    list.forEach(c=>{ CUSTOMER_CF[c.code]=code; });
+    renderAdminCustomers();
+    alert(`Done. ${list.length} customers now use depot ${code}.`);
+  }catch(e){
+    alert('Could not save: '+e.message);
   }
 }
 
@@ -3692,9 +3744,10 @@ function _sortMasterLists(){
       // top. Loading them in parallel let whichever finished last win, so a
       // corrected C&F code could silently flip back to the old one on reload -
       // that is why stock appeared right after an upload and vanished later.
-      loadCustomerAdditions().then(()=>loadContactOverrides()),
+      loadCustomerAdditions().then(()=>loadContactOverrides()).then(()=>{ _custLoaded=true; _sortMasterLists(); populateCustomerSelect(); }),
       loadProductAdditions().then(()=>loadProductOverrides())
     ]).then(()=>{
+      _custLoaded=true;
       _sortMasterLists();
       buildCatFilter();
       renderAdminCustomers();
