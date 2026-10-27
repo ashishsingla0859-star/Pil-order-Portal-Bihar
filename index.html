@@ -191,6 +191,11 @@
   .state-tab { flex: 1 1 0; min-width: 80px; text-align: center; padding: 9px 8px; font-size: 13px; cursor: pointer; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-secondary); user-select: none; transition: background .15s, color .15s; }
   .state-tab:hover { border-color: var(--cobalt); }
   .state-count { font-size: 10px; font-weight: 400; opacity: .85; margin-top: 2px; font-family: var(--font-mono); }
+  .sugg-box { border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-primary); margin-top: 4px; max-height: 220px; overflow: auto; }
+  .sugg { padding: 9px 12px; font-size: 13px; cursor: pointer; }
+  .sugg:hover { background: var(--color-background-secondary); }
+  .sugg small { color: var(--color-text-secondary); margin-left: 6px; }
+  .sugg-hint { padding: 8px 12px; font-size: 12px; color: var(--color-text-secondary); }
   .login-stats { font-size: 11px; color: var(--color-text-secondary); text-align: center; margin-top: 4px; font-family: var(--font-mono); }
   .state-tab.active { background: var(--cobalt); border-color: var(--cobalt); color: #fff; font-weight: 600; }
   .field { display: flex; flex-direction: column; gap: 5px; }
@@ -326,20 +331,20 @@
       <div id="state-select-wrap" class="field">
         <label>Select your state</label>
         <div id="login-state-tabs" class="state-tabs"></div>
-        <div id="login-stats-line" class="login-stats"></div>
         <select id="login-state-select" onchange="onLoginStateChange()" style="display:none"></select>
-      </div>
-      <div id="cust-select-wrap" class="field">
-        <label>Select your account</label>
-        <select id="cust-select"></select>
       </div>
       <div class="field">
         <label>Password</label>
-        <input type="password" id="pw-input" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()" />
+        <input type="password" id="pw-input" placeholder="Enter password" oninput="onCustPwInput()" onkeydown="if(event.key==='Enter'){clearTimeout(_findTimer);if(loginRole==='customer'&&!document.getElementById('cust-select').value)findParties();else doLogin();}" />
+      </div>
+      <div id="cust-select-wrap" class="field">
+        <label>Select your party</label>
+        <select id="cust-select" disabled onchange="onAcctPicked()"><option value="">Enter your password to see your party</option></select>
       </div>
       <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:4px">
         <i class="ti ti-arrow-right"></i> Sign in
       </button>
+      <div id="login-stats-line" class="login-stats" style="margin-top:10px"></div>
       <div class="sub" id="build-tag" style="margin-top:-6px"></div>
     </div>
     <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:flex;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
@@ -1035,6 +1040,7 @@ function setRole(r){
     t.classList.toggle('active',(r==='customer'&&i===0)||(r==='admin'&&i===1));
   });
   document.getElementById('cust-select-wrap').style.display=r==='customer'?'flex':'none';
+  if(r==='customer'&&document.getElementById('pw-input').value.trim().length>=3) setTimeout(findParties,50); else if(r==='customer') resetAcctSelect();
 }
 
 // ---- Customer login: state-wise account list ----
@@ -1116,12 +1122,52 @@ function populateCustomerSelect(){
     if(saved&&states.includes(saved)) stateSel.value=saved;
   }
 
-  const chosen=stateSel.value;
-  renderStateTabs(chosen);
-  const list=CUSTOMERS.filter(c=>_normState(c.state)===_normState(chosen));
-  sel.innerHTML=list.length
-    ? list.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('')
-    : (_custLoaded?'<option value="">No customers found for this state</option>':'<option value="">Loading accounts...</option>');
+  renderStateTabs(stateSel.value);
+  // The party list stays empty until a password is typed (see findParties).
+}
+
+// ---- Password first, then party ----
+// The list of parties is empty until a password is typed. Only the parties
+// whose password matches it are shown; picking one logs in straight away.
+let _findTimer=null,_findToken=0;
+function resetAcctSelect(msg){
+  const sel=document.getElementById('cust-select'); if(!sel) return;
+  sel.innerHTML=`<option value="">${msg||'Enter your password to see your party'}</option>`;
+  sel.disabled=true;
+}
+function onCustPwInput(){
+  if(loginRole!=='customer') return;
+  clearTimeout(_findTimer);
+  const pw=document.getElementById('pw-input').value.trim();
+  if(pw.length<3){ _findToken++; resetAcctSelect(); return; }
+  _findTimer=setTimeout(findParties,700);
+}
+async function findParties(){
+  if(loginRole!=='customer') return;
+  const pw=document.getElementById('pw-input').value.trim();
+  const token=++_findToken;
+  if(!pw){ resetAcctSelect(); return; }
+  if(!_custLoaded){ resetAcctSelect('Loading, please wait...'); _findTimer=setTimeout(findParties,800); return; }
+  const st=document.getElementById('login-state-select').value;
+  const list=CUSTOMERS.filter(c=>_normState(c.state)===_normState(st));
+  resetAcctSelect('Checking...');
+  const {db,ref,get}=fb();
+  const res=await Promise.all(list.map(async c=>{
+    try{
+      const sn=await get(ref(db,`customerPasswords/${c.code}`));
+      const stored=sn.exists()?sn.val():_defaultPasswordFor(c);
+      return stored===pw?c:null;
+    }catch(e){ return null; }
+  }));
+  if(token!==_findToken) return;           // a newer password was typed meanwhile
+  const matches=res.filter(Boolean).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  if(!matches.length){ resetAcctSelect('No party found for this password'); return; }
+  const sel=document.getElementById('cust-select');
+  sel.innerHTML=`<option value="">Select your party (${matches.length})</option>`+matches.map(c=>`<option value="${c.code}">${c.name} (${c.city})</option>`).join('');
+  sel.disabled=false;
+}
+function onAcctPicked(){
+  if(document.getElementById('cust-select').value) doLogin();
 }
 
 // State buttons on the login card: the clicked state turns dark. They drive
@@ -1131,12 +1177,16 @@ function renderStateTabs(chosen){
   if(!box) return;
   const st=_loginStats;
   box.innerHTML=_loginStateList().map(s=>{
-    const n=st?(st.parties[_normState(s)]||0):null;
-    const cnt=n===null?'':`<div class="state-count">${n} ${n===1?'party':'parties'}</div>`;
-    return `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')"><div>${_titleCaseState(s)}</div>${cnt}</div>`;
+    return `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')">${_titleCaseState(s)}</div>`;
   }).join('');
   const line=document.getElementById('login-stats-line');
-  if(line) line.textContent=st?(st.products+' products in catalog (same for all states)'):'';
+  if(line){
+    if(!st){ line.innerHTML=''; }
+    else{
+      const rows=_loginStateList().map(s=>{ const n=st.parties[_normState(s)]||0; return `${_titleCaseState(s)}: ${n} ${n===1?'party':'parties'}`; });
+      line.innerHTML=rows.join('<br>')+`<br>Products: ${st.products} (same for all states)`;
+    }
+  }
 }
 function pickLoginState(s){
   const stateSel=document.getElementById('login-state-select');
@@ -1145,6 +1195,7 @@ function pickLoginState(s){
 }
 
 function onLoginStateChange(){
+  if(loginRole==='customer'){ resetAcctSelect(); if(document.getElementById('pw-input').value.trim().length>=3) setTimeout(findParties,50); }
   const stateSel=document.getElementById('login-state-select');
   try{ localStorage.setItem('pil-login-state',stateSel.value); }catch(e){}
   populateCustomerSelect();
@@ -1266,8 +1317,9 @@ async function doLogin(){
     enterAdminSession(chosenState);
   } else {
     const sel=document.getElementById('cust-select');
+    if(!sel.value){ findParties(); return; }
     const candidate=CUSTOMERS.find(c=>c.code===sel.value);
-    if(!candidate){err.textContent='Please select your account.';err.style.display='block';return;}
+    if(!candidate){err.textContent='Please select your party.';err.style.display='block';return;}
     // Fetch this customer's password from Firebase (fallback to default if not set)
     try{
       const {db,ref,get}=fb();
@@ -1290,6 +1342,7 @@ function logout(){
   SELECTED_ORDER_IDS.clear();
   clearSession();
   document.getElementById('pw-input').value='';
+  resetAcctSelect();
   showScreen('s-login');
 }
 
