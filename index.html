@@ -860,9 +860,32 @@ function subscribeStock(){
   });
   onValue(ref(db,'stockMeta'),(snap)=>{
     LIVE_STOCK_META=snap.val()||null;
-    const el=document.getElementById('stock-freshness-note');
-    if(el) el.textContent=LIVE_STOCK_META?('Stock as of '+LIVE_STOCK_META.uploadedAtDisplay):'Stock as of latest master upload';
+    updateStockFreshnessNote();
   });
+}
+
+// "Stock as of ..." must reflect the logged-in customer's OWN depot (C&F),
+// not whichever depot/state was uploaded last. stockMeta/byCf/{cf} holds a
+// separate upload time per depot. Older data (before this change) only has
+// the single global stockMeta + its cfCodes list, so we use that only if
+// this depot was actually part of that upload - never as a blind fallback.
+function stockUploadTimeFor(cf){
+  const m=LIVE_STOCK_META;
+  if(!cf||!m) return null;
+  if(m.byCf&&m.byCf[cf]&&m.byCf[cf].uploadedAtDisplay) return m.byCf[cf].uploadedAtDisplay;
+  const legacy=m.cfCodes?(Array.isArray(m.cfCodes)?m.cfCodes:Object.values(m.cfCodes)):[];
+  if(m.uploadedAtDisplay&&legacy.map(x=>String(x).toUpperCase()).includes(String(cf).toUpperCase())) return m.uploadedAtDisplay;
+  return null;
+}
+function updateStockFreshnessNote(){
+  const el=document.getElementById('stock-freshness-note');
+  if(!el) return;
+  if(currentRole==='customer'&&currentCustomer){
+    const t=stockUploadTimeFor(currentCustomer.cf);
+    el.textContent=t?('Stock as of '+t):'Stock not uploaded yet for your depot';
+  } else {
+    el.textContent=LIVE_STOCK_META&&LIVE_STOCK_META.uploadedAtDisplay?('Last stock upload '+LIVE_STOCK_META.uploadedAtDisplay):'';
+  }
 }
 
 // Manual override (topbar button) - forces an immediate refresh on demand,
@@ -882,8 +905,7 @@ async function refreshStockAndProducts(){
     LIVE_STOCK_BLOCKED=blockedSnap.val()||{};
     LIVE_STOCK_BATCHES=batchesSnap.val()||{};
     LIVE_STOCK_META=metaSnap.val()||null;
-    const el=document.getElementById('stock-freshness-note');
-    if(el) el.textContent=LIVE_STOCK_META?('Stock as of '+LIVE_STOCK_META.uploadedAtDisplay):'Stock as of latest master upload';
+    updateStockFreshnessNote();
   }catch(e){
     console.error('Could not refresh stock:',e);
   }
@@ -1034,7 +1056,7 @@ function enterCustomerSession(customer){
   loadThoughtOfTheDay();
   showGreetingToast(currentCustomer.name);
   loadCartFromStorage();
-  buildCatFilter();renderProducts();
+  buildCatFilter();renderProducts();updateStockFreshnessNote();
   subscribeOrders(()=>{
     if(document.getElementById('cp-history').style.display!=='none') renderHistory();
   });
@@ -2994,12 +3016,25 @@ async function confirmMasterUpload(){
       }
       await update(ref(db),flatUpdates);
       const now=new Date();
-      await set(ref(db,'stockMeta'),{
-        uploadedAt:now.getTime(),
-        uploadedAtDisplay:now.toLocaleDateString('en-IN')+' '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
-        cfCodes:_muStaged.stockCfCodes,
-        rowCount:_muStaged.stockRowCount
+      // Multi-path update (NOT set): only the depots in THIS file get a new
+      // time; other depots/states keep their own earlier upload time.
+      const _t=now.getTime();
+      const _disp=now.toLocaleDateString('en-IN')+' '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+      const metaUpd={
+        'stockMeta/uploadedAt':_t,
+        'stockMeta/uploadedAtDisplay':_disp,
+        'stockMeta/cfCodes':_muStaged.stockCfCodes,
+        'stockMeta/rowCount':_muStaged.stockRowCount
+      };
+      _muStaged.stockCfCodes.forEach(cf=>{
+        metaUpd[`stockMeta/byCf/${cf}`]={
+          uploadedAt:_t,
+          uploadedAtDisplay:_disp,
+          rowCount:Object.keys(_muStaged.stockUpdates[cf]||{}).length,
+          state:currentAdminState||''
+        };
       });
+      await update(ref(db),metaUpd);
     }
     buildCatFilter();
     _sortMasterLists();
