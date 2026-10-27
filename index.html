@@ -96,6 +96,7 @@
   };
 
   // ---- expose to global scope ----
+  window._fbProjectId = firebaseConfig.projectId;
   window._fb = { db, ref, set, get, onValue, update, runTransaction, remove };
   window._fbAuth = { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut };
   window.STATE_ADMIN_PASSWORDS = STATE_ADMIN_PASSWORDS;
@@ -854,20 +855,63 @@ let LIVE_STOCK_BLOCKED=null, LIVE_STOCK_BATCHES=null;
 // because CART (not the DOM inputs) is the source of truth for quantities
 // and batch picks - renderProducts() always re-populates from CART, so a
 // live update mid-scroll never wipes anything the customer has entered.
+// ---- Device cache of last-known stock ----
+// Stock lives in Firebase, but a copy of the last good data is also kept in
+// this browser (localStorage survives deploying a new index.html). If a load
+// ever comes back empty/partial for a depot, the last-known stock and its
+// "Stock as of" date are still shown instead of vanishing. A depot is only
+// replaced when Firebase actually returns stock for that depot.
+function _stockCacheKey(){ return 'pil-stock-cache-v1:'+(window._fbProjectId||'default'); }
+function _stockCacheLoad(){
+  try{ return JSON.parse(localStorage.getItem(_stockCacheKey())||'{}')||{}; }catch(e){ return {}; }
+}
+function _stockCacheSave(part,val){
+  try{
+    const c=_stockCacheLoad(); c[part]=val;
+    localStorage.setItem(_stockCacheKey(),JSON.stringify(c));
+  }catch(e){ /* storage full/blocked - cache is only a safety net */ }
+}
+function _mergeByCf(live,cached){
+  const out=Object.assign({},cached||{});
+  Object.keys(live||{}).forEach(k=>{ if(live[k]&&typeof live[k]==='object'&&Object.keys(live[k]).length) out[k]=live[k]; });
+  return out;
+}
+function _mergeMeta(live,cached){
+  if(!live&&!cached) return null;
+  const out=Object.assign({},cached||{},live||{});
+  out.byCf=Object.assign({},(cached&&cached.byCf)||{},(live&&live.byCf)||{});
+  return out;
+}
+function _applyStockSnapshot(part,val){
+  const c=_stockCacheLoad();
+  if(part==='stock'){ LIVE_STOCK=_mergeByCf(val,c.stock); _stockCacheSave('stock',LIVE_STOCK); }
+  else if(part==='blocked'){ LIVE_STOCK_BLOCKED=_mergeByCf(val,c.blocked); _stockCacheSave('blocked',LIVE_STOCK_BLOCKED); }
+  else if(part==='batches'){ LIVE_STOCK_BATCHES=_mergeByCf(val,c.batches); _stockCacheSave('batches',LIVE_STOCK_BATCHES); }
+  else if(part==='meta'){ LIVE_STOCK_META=_mergeMeta(val,c.meta); if(LIVE_STOCK_META) _stockCacheSave('meta',LIVE_STOCK_META); }
+}
+// Show last-known stock immediately on load, before Firebase answers.
+(function(){
+  const c=_stockCacheLoad();
+  if(c.stock) LIVE_STOCK=c.stock;
+  if(c.blocked) LIVE_STOCK_BLOCKED=c.blocked;
+  if(c.batches) LIVE_STOCK_BATCHES=c.batches;
+  if(c.meta) LIVE_STOCK_META=c.meta;
+})();
+
 function subscribeStock(){
   const {db,ref,onValue}=fb();
   onValue(ref(db,'stock'),(snap)=>{
-    LIVE_STOCK=snap.val()||{};
+    _applyStockSnapshot('stock',snap.val());
     updateStockFreshnessNote();
     if(currentRole==='customer') calcTotal();
   });
-  onValue(ref(db,'stockBlocked'),(snap)=>{ LIVE_STOCK_BLOCKED=snap.val()||{}; });
+  onValue(ref(db,'stockBlocked'),(snap)=>{ _applyStockSnapshot('blocked',snap.val()); });
   onValue(ref(db,'stockBatches'),(snap)=>{
-    LIVE_STOCK_BATCHES=snap.val()||{};
+    _applyStockSnapshot('batches',snap.val());
     if(currentRole==='customer') renderProducts();
   });
   onValue(ref(db,'stockMeta'),(snap)=>{
-    LIVE_STOCK_META=snap.val()||null;
+    _applyStockSnapshot('meta',snap.val());
     updateStockFreshnessNote();
   });
 }
@@ -891,15 +935,17 @@ function updateStockFreshnessNote(){
   if(currentRole==='customer'&&currentCustomer){
     const cf=currentCustomer.cf;
     const t=stockUploadTimeFor(cf);
-    if(t){ el.textContent='Stock as of '+t; return; }
+    const _n=(LIVE_STOCK&&cf&&LIVE_STOCK[cf])?PRODUCTS.filter(p=>LIVE_STOCK[cf][p.code]!==undefined).length:0;
+    const _tag=cf?(' · Depot '+cf+' · '+_n+' items'):' · no depot code';
+    if(t){ el.textContent='Stock as of '+t+_tag; return; }
     // Old stock is NEVER hidden: it stays in Firebase (/stock) until a newer
     // upload replaces those products. If this depot has stock but its upload
     // date was not recorded (data uploaded before per-depot dates existed),
     // say so honestly instead of showing another state's time.
     const live=!!(LIVE_STOCK&&cf&&LIVE_STOCK[cf]&&Object.keys(LIVE_STOCK[cf]).length);
     const baked=!!(cf&&Object.values(STOCK_BY_CF).some(v=>v&&v[cf]!==undefined));
-    if(live||baked) el.textContent='Stock as of last update (date will show after next upload)';
-    else if(LIVE_STOCK!==null) el.textContent='Stock not uploaded yet for your depot';
+    if(live||baked) el.textContent=((LIVE_STOCK_META&&LIVE_STOCK_META.uploadedAtDisplay)?('Last stock upload '+LIVE_STOCK_META.uploadedAtDisplay):'Stock available')+_tag;
+    else if(LIVE_STOCK!==null) el.textContent='Stock not uploaded yet for your depot'+_tag;
     else el.textContent='';
   } else {
     el.textContent=LIVE_STOCK_META&&LIVE_STOCK_META.uploadedAtDisplay?('Last stock upload '+LIVE_STOCK_META.uploadedAtDisplay):'';
@@ -919,10 +965,10 @@ async function refreshStockAndProducts(){
       get(ref(db,'stockBatches')),
       get(ref(db,'stockMeta'))
     ]);
-    LIVE_STOCK=stockSnap.val()||{};
-    LIVE_STOCK_BLOCKED=blockedSnap.val()||{};
-    LIVE_STOCK_BATCHES=batchesSnap.val()||{};
-    LIVE_STOCK_META=metaSnap.val()||null;
+    _applyStockSnapshot('stock',stockSnap.val());
+    _applyStockSnapshot('blocked',blockedSnap.val());
+    _applyStockSnapshot('batches',batchesSnap.val());
+    _applyStockSnapshot('meta',metaSnap.val());
     updateStockFreshnessNote();
   }catch(e){
     console.error('Could not refresh stock:',e);
@@ -1389,6 +1435,7 @@ function calcTotal(){
 }
 
 function updateStockNotice(){
+  updateStockFreshnessNote();
   const el=document.getElementById('stock-notice');
   if(!el||!currentCustomer) return;
   let msg='';
@@ -2541,6 +2588,14 @@ function _parseExpiryValue(ev){
   }
   return null;
 }
+// SAP often exports Material as 000000000030000826 (leading zeros) or as a
+// number like 30000826.0 - normalise so it matches the portal's Item Code.
+function _stockCode(v){
+  let c=String(v==null?'':v).trim();
+  if(/^\d+\.0+$/.test(c)) c=c.replace(/\.0+$/,'');
+  if(/^\d+$/.test(c)) c=c.replace(/^0+(?=\d)/,'');
+  return c;
+}
 function _muNorm(s){
   return String(s==null?'':s).trim().toLowerCase().replace(/[^a-z0-9]/g,'');
 }
@@ -2902,7 +2957,7 @@ function handleMasterFile(evt){
               for(let r=hIdx+1;r<rows.length;r++){
                 const row=rows[r];
                 if(!row) continue;
-                const code=String(row[codeCol]==null?'':row[codeCol]).trim();
+                const code=_stockCode(row[codeCol]);
                 const cf=String(row[plantCol]==null?'':row[plantCol]).trim().toUpperCase();
                 if(!/^\d+$/.test(code)) continue;
                 if(!/^C\d+$/.test(cf)&&!knownCf.has(cf)){ if(cf) staged.stockRejected[cf]=(staged.stockRejected[cf]||0)+1; continue; }
@@ -2945,7 +3000,7 @@ function handleMasterFile(evt){
               const row=rows[r];
               if(!row) continue;
               const rawCode=row[codeCol];
-              const code=String(rawCode==null?'':rawCode).trim();
+              const code=_stockCode(rawCode);
               // Skip the trailing "Grand Total" row and any other non-numeric
               // Material Code - a totals row breaking this filter is exactly
               // the bug that showed up on the first version of this feature.
