@@ -344,7 +344,6 @@
       <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:4px">
         <i class="ti ti-arrow-right"></i> Sign in
       </button>
-      <div id="login-stats-line" class="login-stats" style="margin-top:10px"></div>
       <div class="sub" id="build-tag" style="margin-top:-6px"></div>
     </div>
     <button class="btn btn-primary" id="pwa-install-btn-login-card" style="display:flex;margin-top:16px;width:320px" onclick="triggerPwaInstall()">
@@ -1179,7 +1178,7 @@ function renderStateTabs(chosen){
   box.innerHTML=_loginStateList().map(s=>{
     return `<div class="state-tab${s===chosen?' active':''}" data-state="${s}" onclick="pickLoginState('${s}')">${_titleCaseState(s)}</div>`;
   }).join('');
-  const line=document.getElementById('login-stats-line');
+  const line=document.getElementById('login-stats-line');   // removed from the login screen on purpose
   if(line){
     if(!st){ line.innerHTML=''; }
     else{
@@ -3863,7 +3862,6 @@ function _sortMasterLists(){
   window.addEventListener('firebase-ready',()=>{
     console.log('Firebase ready!');
     subscribeStock();
-    startLoginStats();
     Promise.all([
       // ORDER MATTERS: the base records (additions) must load first and the
       // later edits (overrides: new C&F code, prices, state...) are applied on
