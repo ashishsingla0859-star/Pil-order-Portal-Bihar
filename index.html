@@ -530,7 +530,6 @@
       <div id="ap-customers" style="display:none">
         <div class="page-title">Customers <span style="font-size:13px;color:var(--color-text-secondary);font-weight:400" id="cust-count-label"></span></div>
         <div class="filter-row" style="justify-content:flex-end;gap:8px">
-          <button class="btn btn-sm" onclick="bulkSetStateCf()" title="Set one depot (C&F) code for every customer of this state"><i class="ti ti-building-warehouse"></i> Set C&amp;F for all</button>
           <button class="btn btn-sm" onclick="requireOwner(openAddCustomer)"><i class="ti ti-plus"></i> Add customer</button>
           <button class="btn btn-sm" onclick="openPasswordManager()"><i class="ti ti-lock"></i> Manage Passwords</button>
           <button class="btn btn-excel btn-sm" onclick="exportCustomers()">
@@ -828,6 +827,16 @@
 // so the buttons appear instantly. To add a state: add it here AND in
 // STATE_ADMIN_PASSWORDS / STATE_DEFAULT_CUSTOMER_PASSWORDS at the top.
 const PORTAL_STATES=['BIHAR','GUJARAT','PUNJAB'];
+// Each state has exactly ONE depot (C&F) code. Every customer of a state is
+// forced onto its state's depot, whatever an Excel sheet or old Firebase record
+// says, so stock can never go to / come from the wrong state.
+const STATE_DEPOT={BIHAR:'C010',GUJARAT:'C011',PUNJAB:'C003'};
+function _enforceStateDepots(){
+  CUSTOMERS.forEach(c=>{
+    const k=_canonicalState(c.state);
+    if(k&&STATE_DEPOT[k]) CUSTOMER_CF[c.code]=STATE_DEPOT[k];
+  });
+}
 let _custLoaded=false;
 // ===================== DATA =====================
 const PRODUCTS=[
@@ -851,7 +860,7 @@ const CUSTOMERS=[
 // re-generate and re-paste these two blocks whenever a fresh stock file
 // or updated Party List is available (ask Claude to redo the same steps).
 const CUSTOMER_CF={"2000549":"C002","2002243":"C008","2002245":"C002","2002246":"C006","2002257":"C006","2002258":"C002","2002274":"C006","2002276":"C006","2002280":"C006","2002281":"C006","2002284":"C006","2002306":"C008","2002307":"C008","2002309":"C002","2002314":"C008","2002318":"C002","2002327":"C008","2002334":"C002","2002335":"C002","2002336":"C008","2002337":"C008","2002338":"C008","2002339":"C008","2002340":"C008","2002344":"C002","2002347":"C008","2002348":"C008","2002349":"C006","2002356":"C002","2002357":"C006","2002365":"C002","2002366":"C002","2002367":"C006","2002368":"C008","2002380":"C008","2002381":"C006","2002382":"C008","2002385":"C008","2002386":"C006","2002404":"C008","2002405":"C006","2002415":"C006","2002416":"C008","2002420":"C008","2002441":"C006","2002450":"C008","2002475":"C008","2002476":"C008","2002479":"C006","2002486":"C008","2002487":"C003","2002491":"C003","2002492":"C003","2002493":"C003","2002497":"C003","2002498":"C008","2002509":"C002","2002511":"C008","2002515":"C003","2002517":"C003","2002520":"C006","2002513":"C001","2002512":"C006","2002525":"C008"};
-const STOCK_BY_CF={"24000012":{"C002":0,"C003":1830,"C006":85,"C008":324,"C012":35},"24000047":{"C002":2746,"C003":5740,"C006":2285,"C008":1813,"C012":1200},"24000048":{"C002":615,"C003":7170,"C006":3447,"C008":1624,"C012":850},"24000065":{"C002":84,"C003":1348,"C006":0,"C008":95,"C012":5},"24000115":{"C002":1770,"C003":25370,"C006":26810,"C008":22366,"C012":2850},"24000116":{"C002":0,"C003":12220,"C006":14215,"C008":3968,"C012":3540},"24000132":{"C002":0,"C003":0,"C006":228,"C008":0,"C012":0},"24000152":{"C002":1231,"C003":0,"C006":48,"C008":3029,"C012":1151},"24000153":{"C002":0,"C003":784,"C006":51,"C008":11,"C012":0},"24000169":{"C002":145,"C003":1609,"C006":412,"C008":162,"C012":79},"24000205":{"C002":0,"C003":87,"C006":17,"C008":72,"C012":22},"24000209":{"C002":0,"C003":34,"C006":22,"C008":99,"C012":27},"24000211":{"C002":0,"C003":0,"C006":39,"C008":0,"C012":0},"24000236":{"C002":64,"C003":104,"C006":868,"C008":192,"C012":148},"24000238":{"C002":0,"C003":66,"C006":8,"C008":0,"C012":1},"30000488":{"C002":175,"C003":1059,"C006":515,"C008":133,"C012":138},"30000495":{"C002":0,"C003":270,"C006":59,"C008":78,"C012":9},"30000496":{"C002":26,"C003":328,"C006":40,"C008":143,"C012":4},"30000497":{"C002":8,"C003":103,"C006":85,"C008":0,"C012":23},"30000605":{"C002":0,"C003":2360,"C006":1458,"C008":1250,"C012":1260},"30000608":{"C002":212,"C003":4470,"C006":0,"C008":0,"C012":60},"30000611":{"C002":102,"C003":2100,"C006":117,"C008":563,"C012":180},"30000616":{"C002":13768,"C003":40420,"C006":23664,"C008":30068,"C012":9828},"30000641":{"C002":387,"C003":5610,"C006":3248,"C008":990,"C012":1540},"30000661":{"C002":0,"C003":30372,"C006":12080,"C008":3284,"C012":3818},"30000662":{"C002":460,"C003":26582,"C006":4448,"C008":10840,"C012":420},"30000664":{"C002":1306,"C003":13752,"C006":12268,"C008":6874,"C012":2510},"30000673":{"C002":289,"C003":2578,"C006":1207,"C008":0,"C012":36},"30000691":{"C002":427,"C003":6140,"C006":4215,"C008":2802,"C012":1480},"30000702":{"C002":570,"C003":7610,"C006":2978,"C008":2117,"C012":2154},"30000705":{"C002":632,"C003":3285,"C006":543,"C008":479,"C012":1250},"30000722":{"C002":0,"C003":0,"C006":40,"C008":765,"C012":0},"30000751":{"C002":0,"C003":82,"C006":0,"C008":710,"C012":0},"30000761":{"C002":0,"C003":115,"C006":1202,"C008":1153,"C012":18},"30000773":{"C002":1517,"C003":7966,"C006":0,"C008":177,"C012":24},"30000778":{"C002":56,"C003":360,"C006":0,"C008":34,"C012":10},"30000793":{"C002":920,"C003":1520,"C006":0,"C008":0,"C012":400},"30000800":{"C002":259,"C003":946,"C006":243,"C008":868,"C012":43},"30000813":{"C002":489,"C003":4614,"C006":3926,"C008":3419,"C012":1826},"30000823":{"C002":580,"C003":550,"C006":570,"C008":2,"C012":1520},"30000826":{"C002":374,"C003":2352,"C006":735,"C008":0,"C012":300},"30001504":{"C002":480,"C003":406,"C006":0,"C008":483,"C012":0},"30001785":{"C002":229,"C003":24,"C006":0,"C008":116,"C012":0},"30001841":{"C002":128,"C003":0,"C006":0,"C008":0,"C012":132},"30001869":{"C002":32,"C003":0,"C006":0,"C008":58,"C012":15},"30001876":{"C002":0,"C003":302,"C006":8,"C008":9,"C012":12},"30001886":{"C002":0,"C003":0,"C006":0,"C008":0,"C012":23},"30002100":{"C002":616,"C003":680,"C006":174,"C008":170,"C012":320},"30002287":{"C002":0,"C003":0,"C006":0,"C008":0,"C012":174},"30002288":{"C002":248,"C003":0,"C006":332,"C008":324,"C012":240},"30002307":{"C002":286,"C003":762,"C006":732,"C008":499,"C012":338},"30002308":{"C002":0,"C003":2962,"C006":49,"C008":417,"C012":102},"30002423":{"C002":136,"C003":2590,"C006":6430,"C008":208,"C012":3370},"30002474":{"C002":0,"C003":1538,"C006":0,"C008":0,"C012":331},"30002568":{"C002":273,"C003":750,"C006":3230,"C008":2379,"C012":861},"30002721":{"C002":4,"C003":94,"C006":139,"C008":154,"C012":33},"30002763":{"C002":2118,"C003":9636,"C006":15856,"C008":3586,"C012":3882},"30002804":{"C002":310,"C003":5840,"C006":4267,"C008":2902,"C012":1450},"30002848":{"C002":0,"C003":49720,"C006":1393,"C008":10060,"C012":440},"30002963":{"C002":57,"C003":151,"C006":7,"C008":46,"C012":35},"30002980":{"C002":6,"C003":116,"C006":304,"C008":32,"C012":60},"30003024":{"C002":330,"C003":365,"C006":1322,"C008":1250,"C012":0},"30003092":{"C002":0,"C003":255,"C006":313,"C008":334,"C012":42},"30003106":{"C002":2466,"C003":8052,"C006":3082,"C008":2324,"C012":8220},"30003133":{"C002":119,"C003":85,"C006":872,"C008":356,"C012":734},"30003149":{"C002":154,"C003":493,"C006":1031,"C008":505,"C012":159},"30003150":{"C002":208,"C003":326,"C006":377,"C008":448,"C012":148},"30003161":{"C002":293,"C003":122,"C006":0,"C008":0,"C012":105},"30003179":{"C002":222,"C003":836,"C006":1247,"C008":1302,"C012":145},"30003208":{"C002":2078,"C003":37190,"C006":8810,"C008":4190,"C012":40}};
+const STOCK_BY_CF={}; // old baked snapshot removed: depots were re-assigned per state
 
 
 // ===================== STATE =====================
@@ -878,7 +887,14 @@ let LIVE_STOCK_BLOCKED=null, LIVE_STOCK_BATCHES=null;
 // ever comes back empty/partial for a depot, the last-known stock and its
 // "Stock as of" date are still shown instead of vanishing. A depot is only
 // replaced when Firebase actually returns stock for that depot.
-function _stockCacheKey(){ return 'pil-stock-cache-v1:'+(window._fbProjectId||'default'); }
+// A depot's stock counts only if it has an upload record (stockMeta/byCf/<depot>).
+// Old, unrecorded data (e.g. Bihar's former C003 stock, which is now Punjab's
+// depot) is ignored until that depot gets a fresh upload.
+function _depotUploaded(cf){
+  return !!(cf&&LIVE_STOCK_META&&LIVE_STOCK_META.byCf&&LIVE_STOCK_META.byCf[cf]);
+}
+function _stockOf(cf){ return (LIVE_STOCK&&_depotUploaded(cf)&&LIVE_STOCK[cf])||null; }
+function _stockCacheKey(){ return 'pil-stock-cache-v2:'+(window._fbProjectId||'default'); }
 function _stockCacheLoad(){
   try{ return JSON.parse(localStorage.getItem(_stockCacheKey())||'{}')||{}; }catch(e){ return {}; }
 }
@@ -952,14 +968,14 @@ function updateStockFreshnessNote(){
   if(currentRole==='customer'&&currentCustomer){
     const cf=currentCustomer.cf;
     const t=stockUploadTimeFor(cf);
-    const _n=(LIVE_STOCK&&cf&&LIVE_STOCK[cf])?PRODUCTS.filter(p=>LIVE_STOCK[cf][p.code]!==undefined).length:0;
+    const _n=_stockOf(cf)?PRODUCTS.filter(p=>_stockOf(cf)[p.code]!==undefined).length:0;
     const _tag=cf?(' · Depot '+cf+' · '+_n+' items'):' · no depot code';
     if(t){ el.textContent='Stock as of '+t+_tag; return; }
     // Old stock is NEVER hidden: it stays in Firebase (/stock) until a newer
     // upload replaces those products. If this depot has stock but its upload
     // date was not recorded (data uploaded before per-depot dates existed),
     // say so honestly instead of showing another state's time.
-    const live=!!(LIVE_STOCK&&cf&&LIVE_STOCK[cf]&&Object.keys(LIVE_STOCK[cf]).length);
+    const live=!!(_stockOf(cf)&&Object.keys(_stockOf(cf)).length);
     const baked=!!(cf&&Object.values(STOCK_BY_CF).some(v=>v&&v[cf]!==undefined));
     if(live||baked) el.textContent=((LIVE_STOCK_META&&LIVE_STOCK_META.uploadedAtDisplay)?('Last stock upload '+LIVE_STOCK_META.uploadedAtDisplay):'Stock available')+_tag;
     else if(LIVE_STOCK!==null) el.textContent='Stock not uploaded yet for your depot'+_tag;
@@ -1434,10 +1450,9 @@ function getStockStatus(code){
   if(!currentCustomer||!currentCustomer.cf) return 'unknown';
   const cf=currentCustomer.cf;
   let qty;
-  if(LIVE_STOCK && LIVE_STOCK[cf] && LIVE_STOCK[cf][code]!==undefined){
-    qty=LIVE_STOCK[cf][code];
-  } else if(STOCK_BY_CF[code] && STOCK_BY_CF[code][cf]!==undefined){
-    qty=STOCK_BY_CF[code][cf];
+  const _so=_stockOf(cf);
+  if(_so && _so[code]!==undefined){
+    qty=_so[code];
   } else {
     return 'unknown';
   }
@@ -1473,7 +1488,7 @@ function _bucketColor(bucket){
 }
 function _getBatchesFor(code){
   if(!currentCustomer||!currentCustomer.cf) return [];
-  return (LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[currentCustomer.cf]&&LIVE_STOCK_BATCHES[currentCustomer.cf][code])||[];
+  return (_depotUploaded(currentCustomer.cf)&&LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[currentCustomer.cf]&&LIVE_STOCK_BATCHES[currentCustomer.cf][code])||[];
 }
 function _batchOptionHtml(b,idx,selectedIdx){
   const bucket=_expiryBucket(b.expiryTs);
@@ -1577,7 +1592,7 @@ function updateStockNotice(){
   let msg='';
   if(!currentCustomer.cf){
     msg='Stock cannot be shown: your account has no C&F (depot) code. Please ask your admin to add it.';
-  } else if(LIVE_STOCK_META!==null&&!(LIVE_STOCK&&LIVE_STOCK[currentCustomer.cf]&&Object.keys(LIVE_STOCK[currentCustomer.cf]).length)){
+  } else if(LIVE_STOCK_META!==null&&!(_stockOf(currentCustomer.cf)&&Object.keys(_stockOf(currentCustomer.cf)).length)){
     msg='No stock has been uploaded for your depot ('+currentCustomer.cf+'). Please ask your admin to upload the stock file with this depot code.';
   }
   el.textContent=msg;
@@ -2678,6 +2693,7 @@ async function saveAddCustomer(){
   if(phone && !/^\d{7,15}$/.test(phone)){errEl.textContent='Phone should be 7-15 digits.';errEl.style.display='block';return;}
   if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent='Enter a valid email address.';errEl.style.display='block';return;}
   const cust={code,name,city,state,phone,email};
+  const _d=STATE_DEPOT[_canonicalState(state)]; if(_d) cust.cf=_d;
   const {db,ref,set}=window._fb;
   try{
     await set(ref(db,`customerAdditions/${code}`),cust);
@@ -2721,7 +2737,7 @@ function _stockDiagLines(staged){
   const ns=Object.keys(noStock);
   if(ns.length) out.push(bad(`No stock in this file for depot(s): ${ns.map(k=>k+' ('+noStock[k]+' customers)').join(', ')}. This file has depots: ${[...stockCfs].join(', ')}. The code in the Party List and the stock file must be exactly the same.`));
   const rj=Object.keys(staged.stockRejected);
-  if(rj.length) out.push(bad(`Stock rows skipped - depot/plant code not recognised: ${rj.slice(0,6).map(k=>k+' x'+staged.stockRejected[k]).join(', ')}. Put the same code in the Party List "C & F Code" column and upload both together.`));
+  if(rj.length) out.push(bad(`Stock rows skipped - these plants are not a portal depot (allowed: Bihar C010, Gujarat C011, Punjab C003): ${rj.slice(0,6).map(k=>k+' x'+staged.stockRejected[k]).join(', ')}. Those rows were ignored.`));
   if(!noCf&&!ns.length&&!rj.length&&okCount) out.push(`<span style="color:#15803d">Stock matches all ${okCount} ${who}customers.</span>`);
   return out;
 }
@@ -3072,6 +3088,7 @@ function handleMasterFile(evt){
                 email:col.email!==-1?String(row[col.email]||'').trim():'',
                 cf:col.cf!==-1?String(row[col.cf]||'').trim().toUpperCase():''
               };
+              if(STATE_DEPOT[_canonicalState(custState)]) cust.cf=STATE_DEPOT[_canonicalState(custState)];
               if(CUSTOMERS.find(c=>c.code===code)) staged.updCustomers.push(cust);
               else staged.newCustomers.push(cust);
             }
@@ -3081,7 +3098,7 @@ function handleMasterFile(evt){
 
       // Depot codes we already know from customers (existing + this upload), so a
       // depot that is not named C0xx / Cxxx (e.g. a Gujarat C&F) is still accepted.
-      const knownCf=new Set([...Object.values(CUSTOMER_CF),...staged.newCustomers.map(x=>x.cf),...staged.updCustomers.map(x=>x.cf)]
+      const knownCf=new Set([...Object.values(STATE_DEPOT),...Object.values(CUSTOMER_CF),...staged.newCustomers.map(x=>x.cf),...staged.updCustomers.map(x=>x.cf)]
         .filter(Boolean).map(x=>String(x).trim().toUpperCase()));
       if(stockSheetName){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[stockSheetName],{header:1,defval:''});
@@ -3107,7 +3124,7 @@ function handleMasterFile(evt){
                 if(/^[A-Z0-9]+$/.test(k)&&new RegExp('(^|[^A-Z0-9])'+k+'($|[^A-Z0-9])').test(hs)){ found=k; break; }
               }
             }
-            if(found) cfCols.push({idx,cf:found});
+            if(found&&Object.values(STATE_DEPOT).includes(found)) cfCols.push({idx,cf:found});
           });
 
           if(plantCol!==-1&&unrestrictedCol!==-1){
@@ -3129,7 +3146,7 @@ function handleMasterFile(evt){
                 const code=_stockCode(row[codeCol]);
                 const cf=String(row[plantCol]==null?'':row[plantCol]).trim().toUpperCase();
                 if(!/^\d+$/.test(code)) continue;
-                if(!/^C\d+$/.test(cf)&&!knownCf.has(cf)){ if(cf) staged.stockRejected[cf]=(staged.stockRejected[cf]||0)+1; continue; }
+                if(!Object.values(STATE_DEPOT).includes(cf)){ if(cf) staged.stockRejected[cf]=(staged.stockRejected[cf]||0)+1; continue; }
                 const qty=parseFloat(row[unrestrictedCol])||0;
                 const blocked=blockedCol!==-1?(parseFloat(row[blockedCol])||0):0;
                 const batch=batchCol!==-1?String(row[batchCol]||'').trim():'';
@@ -3258,27 +3275,23 @@ async function confirmMasterUpload(){
       if(!CUSTOMERS.find(x=>x.code===c.code)) CUSTOMERS.push(c);
       if(c.cf) CUSTOMER_CF[c.code]=String(c.cf).trim().toUpperCase();
     }
+    _enforceStateDepots();
     if(_muStaged.stockRowCount){
       // Single multi-path update rather than one set() per cell - this is
       // hundreds of leaves (products x depots) and doing them individually
       // would be slow and leave a half-written state if the connection
       // drops partway through.
+      // Every depot present in the file is REPLACED as a whole (stock, blocked,
+      // batches), so nothing from an older upload or an older depot layout can
+      // be left behind. Depots not in the file are not touched.
       const flatUpdates={};
-      for(const cf in _muStaged.stockUpdates){
-        for(const code in _muStaged.stockUpdates[cf]){
-          flatUpdates[`stock/${cf}/${code}`]=_muStaged.stockUpdates[cf][code];
-        }
-      }
-      for(const cf in _muStaged.stockBlocked){
-        for(const code in _muStaged.stockBlocked[cf]){
-          flatUpdates[`stockBlocked/${cf}/${code}`]=_muStaged.stockBlocked[cf][code];
-        }
-      }
-      for(const cf in _muStaged.stockBatches){
-        for(const code in _muStaged.stockBatches[cf]){
-          flatUpdates[`stockBatches/${cf}/${code}`]=_muStaged.stockBatches[cf][code];
-        }
-      }
+      const _cfs=new Set([...(_muStaged.stockCfCodes||[]),...Object.keys(_muStaged.stockUpdates)]);
+      _cfs.forEach(cf=>{
+        const st=_muStaged.stockUpdates[cf], bl=_muStaged.stockBlocked[cf], ba=_muStaged.stockBatches[cf];
+        flatUpdates[`stock/${cf}`]=(st&&Object.keys(st).length)?st:null;
+        flatUpdates[`stockBlocked/${cf}`]=(bl&&Object.keys(bl).length)?bl:null;
+        flatUpdates[`stockBatches/${cf}`]=(ba&&Object.keys(ba).length)?ba:null;
+      });
       await update(ref(db),flatUpdates);
       const now=new Date();
       // Multi-path update (NOT set): only the depots in THIS file get a new
@@ -3561,7 +3574,7 @@ function buildSonipatExport(o,cf){
   ];
   let dataRowCount=0;
   o.items.forEach(item=>{
-    const batches=(LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[cf]&&LIVE_STOCK_BATCHES[cf][item.code])||[];
+    const batches=(_depotUploaded(cf)&&LIVE_STOCK_BATCHES&&LIVE_STOCK_BATCHES[cf]&&LIVE_STOCK_BATCHES[cf][item.code])||[];
     if(batches.length){
       // Only the batch the customer actually chose (or selected) goes in the
       // export - one row per order line, not one row per batch the product
@@ -3868,10 +3881,11 @@ function _sortMasterLists(){
       // top. Loading them in parallel let whichever finished last win, so a
       // corrected C&F code could silently flip back to the old one on reload -
       // that is why stock appeared right after an upload and vanished later.
-      loadCustomerAdditions().then(()=>loadContactOverrides()).then(()=>{ _custLoaded=true; _sortMasterLists(); populateCustomerSelect(); }),
+      loadCustomerAdditions().then(()=>loadContactOverrides()).then(()=>{ _custLoaded=true; _enforceStateDepots(); _sortMasterLists(); populateCustomerSelect(); }),
       loadProductAdditions().then(()=>loadProductOverrides())
     ]).then(()=>{
       _custLoaded=true;
+      _enforceStateDepots();
       _sortMasterLists();
       buildCatFilter();
       renderAdminCustomers();
