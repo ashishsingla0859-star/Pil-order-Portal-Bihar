@@ -467,6 +467,7 @@
       <span class="pil-clock"></span><button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme"><i class="ti ti-sun icon-sun"></i><i class="ti ti-moon icon-moon"></i></button>
       <button class="theme-toggle notif-toggle" onclick="toggleAdminNotifications()" title="Order notifications: OFF (tap to turn on)"><i class="ti ti-bell-off"></i></button>
     <button class="btn btn-sm" id="pwa-install-btn-admin" style="display:inline-flex" onclick="triggerPwaInstall()"><i class="ti ti-download"></i> Install app</button>
+      <button class="btn btn-sm" onclick="requireOwner(openPartyUpload)" title="Upload the Party List for this state only"><i class="ti ti-users"></i> Upload parties</button>
       <button class="btn btn-sm" onclick="openImportOrder()"><i class="ti ti-file-import"></i> Import order from Excel</button>
       <button class="btn btn-sm" onclick="logout()">Sign out</button>
     </div>
@@ -676,13 +677,8 @@
 
 <div class="modal-overlay" id="master-upload-modal">
   <div class="modal-box" style="width:560px">
-    <div class="modal-title">Upload master data (Party + Product + Stock Excel)</div>
-    <div style="font-size:12px;color:var(--color-text-secondary,#666);margin-bottom:10px">
-      Upload one .xlsx file. It can contain a <strong>Party List</strong> sheet, a <strong>Product List</strong> sheet,
-      and/or a <strong>C&amp;F stock</strong> sheet (same layout as your daily "CFA Stock" report - a Material Code
-      column plus one column per depot, e.g. "Meerut C002"). Existing codes/stock are updated in place; new ones added.
-      Nothing is saved until you review the summary and click Confirm.
-    </div>
+    <div class="modal-title" id="mu-title">Upload master data</div>
+    <div id="mu-desc" style="font-size:12px;color:var(--color-text-secondary,#666);margin-bottom:10px"></div>
     <input type="file" id="mu-file" accept=".xlsx,.xls" onchange="handleMasterFile(event)" />
     <div id="mu-summary" style="margin-top:12px;font-size:13px;display:none;background:#f5f5f5;border-radius:8px;padding:10px 12px;max-height:260px;overflow:auto"></div>
     <div class="modal-err" id="mu-err"></div>
@@ -2818,7 +2814,19 @@ function _muFindHeaderRow(rows,codeAliases){
   return -1;
 }
 
-function openMasterUpload(){
+let _muMode='master';
+function _setMuMode(mode){
+  _muMode=mode;
+  document.getElementById('mu-title').textContent=mode==='party'
+    ? 'Upload parties - '+(currentAdminState?_titleCaseState(currentAdminState):'this state')+' only'
+    : 'Master upload - products and stock (all states)';
+  document.getElementById('mu-desc').innerHTML=mode==='party'
+    ? 'Upload an .xlsx with a <strong>Party List</strong> sheet. Every party in it is saved to <strong>'+(currentAdminState?_titleCaseState(currentAdminState):'your state')+'</strong> only, whatever the State column says, so it can never appear in another state. Nothing is saved until you review the summary and click Confirm.'
+    : 'Upload an .xlsx with a <strong>Product List</strong> sheet and/or the <strong>SAP stock</strong> sheet (all depots together). Products apply to every state; stock is split by depot - Bihar C010, Gujarat C011, Punjab C003. A Party List sheet in this file is <strong>ignored</strong>: parties are uploaded from each state\'s admin screen. Nothing is saved until you review the summary and click Confirm.';
+}
+function openPartyUpload(){ openMasterUpload('party'); }
+function openMasterUpload(mode){
+  _setMuMode(mode==='party'?'party':'master');
   _muStaged=null;
   document.getElementById('mu-file').value='';
   document.getElementById('mu-summary').style.display='none';
@@ -2978,7 +2986,7 @@ function handleMasterFile(evt){
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
       let partySheetName=wb.SheetNames.find(n=>/party|parties|customer|distributor|dealer/.test(_muNorm(n))&&!_muNorm(n).includes('product'));
-      const productSheetName=wb.SheetNames.find(n=>_muNorm(n).includes('product'));
+      let productSheetName=wb.SheetNames.find(n=>_muNorm(n).includes('product'));
       // Sheet NAME containing "stock" is the old CFA-report convention, but the
       // raw daily SAP export (e.g. "SAPUI5 Export") never gets renamed - so also
       // fall back to sniffing sheet CONTENT: any sheet with both a Material/Plant
@@ -3007,13 +3015,18 @@ function handleMasterFile(evt){
           return hIdx!==-1&&_muFindCol(rows[hIdx],['Party Name','Customer Name','Dealer Name'])!==-1;
         });
       }
+      let _ignoredParty=false,_ignoredOther=false;
+      if(_muMode==='master'){ if(partySheetName) _ignoredParty=true; partySheetName=undefined; }
+      else { if(productSheetName||stockSheetName) _ignoredOther=true; productSheetName=undefined; stockSheetName=undefined; }
       if(!partySheetName && !productSheetName && !stockSheetName){
-        errEl.textContent=`Could not find a "Party List", "Product List", or stock sheet. Sheets found: ${wb.SheetNames.join(', ')}`;
+        errEl.textContent=_muMode==='party'
+          ? `Could not find a Party List sheet. Sheets found: ${wb.SheetNames.join(', ')}`
+          : `Could not find a Product List or stock sheet${_ignoredParty?' (the Party List sheet is ignored here - upload parties from the state admin screen)':''}. Sheets found: ${wb.SheetNames.join(', ')}`;
         errEl.style.display='block';
         return;
       }
 
-      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[],stockRejected:{},stateNotes:{defaulted:0,blank:0,unknown:{},counts:{}}};
+      const staged={newProducts:[],updProducts:[],newCustomers:[],updCustomers:[],stockUpdates:{},stockBlocked:{},stockBatches:{},stockCfCodes:[],stockRowCount:0,skipped:[],stockRejected:{},stateNotes:{overridden:0,defaulted:0,blank:0,unknown:{},counts:{}}};
 
       if(productSheetName){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[productSheetName],{header:1,defval:''});
@@ -3087,7 +3100,10 @@ function handleMasterFile(evt){
               if(!code||!name) continue;
               const rawState=col.state!==-1?String(row[col.state]||'').trim():'';
               let custState=_canonicalState(rawState);
-              if(!custState){
+              if(_muMode==='party'&&currentAdminState){
+                if(rawState&&custState&&custState!==currentAdminState) staged.stateNotes.overridden++;
+                custState=currentAdminState;
+              } else if(!custState){
                 if(!rawState&&currentAdminState){ custState=currentAdminState; staged.stateNotes.defaulted++; }
                 else if(!rawState){ staged.stateNotes.blank++; }
                 else { custState=rawState; staged.stateNotes.unknown[rawState]=(staged.stateNotes.unknown[rawState]||0)+1; }
@@ -3225,8 +3241,13 @@ function handleMasterFile(evt){
       if(ignoredSheets.length) staged.skipped.push(`Sheet(s) not recognised and ignored: ${ignoredSheets.join(', ')} (rename the customer sheet to "Party List", the product sheet to "Product List")`);
       _muStaged=staged;
       const lines=[];
-      lines.push(`<strong>Products:</strong> ${staged.newProducts.length} new, ${staged.updProducts.length} to update <span style="color:var(--color-text-secondary)">(the product list is common, so this applies to every state)</span>`);
-      lines.push(`<strong>Customers:</strong> ${staged.newCustomers.length} new, ${staged.updCustomers.length} to update`);
+      if(_ignoredParty) lines.push('<span style="color:#8A5417">A Party List sheet was found and <strong>ignored</strong> - parties are uploaded from each state\'s admin screen (Upload parties).</span>');
+      if(_ignoredOther) lines.push('<span style="color:#8A5417">Product / stock sheets were found and <strong>ignored</strong> - those are uploaded from the Master upload on the login screen.</span>');
+      if(_muMode==='master') lines.push(`<strong>Products:</strong> ${staged.newProducts.length} new, ${staged.updProducts.length} to update <span style="color:var(--color-text-secondary)">(the product list is common, so this applies to every state)</span>`);
+      if(_muMode==='party'){
+      lines.push(`<strong>Parties (${_titleCaseState(currentAdminState||'')}):</strong> ${staged.newCustomers.length} new, ${staged.updCustomers.length} to update`);
+      if(staged.stateNotes.overridden) lines.push(`${staged.stateNotes.overridden} party/parties had a different State in the sheet - saved to <strong>${_titleCaseState(currentAdminState)}</strong> anyway.`);
+      }
       const sn=staged.stateNotes;
       const stateParts=Object.keys(sn.counts).map(s=>`${s} ${sn.counts[s]}`);
       if(stateParts.length) lines.push(`<strong>Customers by state:</strong> ${stateParts.join(', ')}`);
@@ -3235,7 +3256,7 @@ function handleMasterFile(evt){
       if(unk.length||sn.blank) lines.push(`<span style="color:#b91c1c">State missing/not recognised for ${sn.blank+unk.reduce((t,k)=>t+sn.unknown[k],0)} customer(s)${unk.length?` (${unk.map(k=>'"'+k+'" x'+sn.unknown[k]).join(', ')})`:''} - they will NOT show in any state's login or admin list. Fix the State column (Bihar / Gujarat) and upload again.</span>`);
       const otherState=Object.keys(sn.counts).filter(s=>currentAdminState&&_normState(s)!==_normState(currentAdminState));
       if(otherState.length) lines.push(`Note: you are logged in as <strong>${currentAdminState}</strong> admin, so ${otherState.join(', ')} customers will only be visible when you log in with that state's admin password (or pick that state on the customer login).`);
-      _stockDiagLines(staged).forEach(l=>lines.push(l));
+      if(_muMode==='master') _stockDiagLines(staged).forEach(l=>lines.push(l));
       if(staged.stockRowCount) lines.push(`<strong>Stock for ALL states in this file:</strong> ${_stockSummary(staged)}.<br>Each depot listed here is fully replaced, whichever state admin you are logged in as. Depots not in the file stay as they are.`);
       if(staged.skipped.length) lines.push(`<span style="color:#b91c1c">Issues: ${staged.skipped.join(' | ')}</span>`);
       const totalRows=staged.newProducts.length+staged.updProducts.length+staged.newCustomers.length+staged.updCustomers.length+staged.stockRowCount;
